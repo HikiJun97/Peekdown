@@ -1,9 +1,37 @@
 // 렌더러·리더 단위 테스트. tests/harness/main.swift의 unit 묶음과 같은 내용을 Rust 구현에 돌린다.
 
 use peekdown_core::images::decode_image_path;
+use peekdown_core::render::render_with_images;
 use peekdown_core::textbundle::encode_asset_spaces;
-use peekdown_core::{is_same_document_link, render, zip};
+use peekdown_core::{is_same_document_link, page_for_markdown, render, zip};
+use std::path::PathBuf;
 use std::time::Instant;
+
+/// 1x1 PNG
+const PNG: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+    0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63,
+    0x64, 0x60, 0xF8, 0x5F, 0x0F, 0x00, 0x02, 0x87, 0x01, 0x80, 0xEB, 0x47, 0xBA, 0x92, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
+    0xAE, 0x42, 0x60, 0x82,
+];
+
+/// 테스트마다 따로 쓰는 임시 폴더. 끝나면 지운다.
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("peekdown-core-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
 
 #[test]
 fn common_syntax() {
@@ -27,6 +55,8 @@ fn common_syntax() {
 fn raw_html_and_mermaid() {
     assert!(render("<script>alert(1)</script>\n").contains("&lt;script"), "tagfilter가 <script>를 무력화");
     assert!(render("x <style>a{}</style>\n").contains("&lt;style>"), "인라인 <style>도 무력화");
+    assert!(render("<div>\n<style/x>a{}</style>\n").contains("&lt;style/x>"), "<style/x>도 무력화");
+    assert!(render("x <!-- --!><style>a{}</style> -->\n").contains("&lt;style>"), "주석 노드 안에 숨긴 <style>도 무력화");
     assert!(render("<div>ok</div>\n").contains("<div>ok</div>"), "다른 HTML은 그대로");
     let mermaid = render("```mermaid\ngraph TD\n  A-->B\n```\n");
     assert!(mermaid.contains("<pre class=\"mermaid\">") && mermaid.contains("A--&gt;B"), "mermaid 블록 변환\n{mermaid}");
@@ -40,19 +70,42 @@ fn footnotes() {
     assert!(html.contains("[^a-z]") && html.contains("<code>[^1]</code>"), "정의 없는 [^…]와 코드는 그대로");
 }
 
+/// 이미지 노드의 주소가 실제 파일 경로로 풀리는지 본다(엔티티·백슬래시는 파서가, 퍼센트 인코딩은 decode_image_path가 푼다).
 #[test]
 fn image_path_decoding() {
-    for (input, expected) in [
-        ("it&#x27;s.png", "it's.png"),
-        ("it&#39;s.png", "it's.png"),
-        ("a%20b.png", "a b.png"),
-        ("a&amp;b.png", "a&b.png"),
-        ("%EC%8A%A4.png", "스.png"),
-        ("100%.png", "100%.png"),
-        ("&amp;#39;.png", "&#39;.png"),
+    for (markdown, expected) in [
+        ("![](it&#x27;s.png)", "it's.png"),
+        ("![](it&#39;s.png)", "it's.png"),
+        ("![](a%20b.png)", "a b.png"),
+        ("![](<a b.png>)", "a b.png"),
+        ("![](a&amp;b.png)", "a&b.png"),
+        ("![](%EC%8A%A4.png)", "스.png"),
+        ("![](100%.png)", "100%.png"),
+        ("![](&amp;#39;.png)", "&#39;.png"),
+        ("![](a\\(1\\).png)", "a(1).png"),
     ] {
-        assert_eq!(decode_image_path(input), expected, "decode_image_path({input})");
+        let mut seen = Vec::new();
+        render_with_images(markdown, |url| {
+            seen.push(decode_image_path(url));
+            None
+        });
+        assert_eq!(seen, [expected], "{markdown}");
     }
+}
+
+#[test]
+fn only_markdown_images_are_inlined() {
+    let dir = TempDir::new("inline");
+    std::fs::write(dir.0.join("pic.png"), PNG).unwrap();
+    std::fs::write(dir.0.join("secret.png"), PNG).unwrap();
+    let page = page_for_markdown(
+        "![pic](pic.png)\n\n![again](./pic.png)\n\n<img id=\"raw\" src=\"pic.png\">\n\n\
+         <img src='http://127.0.0.1:9/leak?d= <img src=\"secret.png\" '>\n",
+        Some(&dir.0),
+    );
+    assert_eq!(page.matches("src=\"data:image/png").count(), 2, "마크다운 이미지 두 개만 인라인\n{page}");
+    assert!(page.contains("<img id=\"raw\" src=\"pic.png\">"), "raw HTML <img>는 그대로");
+    assert!(page.contains("leak?d= <img src=\"secret.png\""), "속성값 안에 숨긴 <img src>는 바꾸지 않음(로컬 이미지가 원격으로 새지 않음)");
 }
 
 #[test]

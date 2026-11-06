@@ -133,6 +133,7 @@ dependencies = [
  "miniz_oxide",
  "regex-lite",
  "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

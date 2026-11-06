@@ -47,7 +47,7 @@ for suite in "${SUITES[@]}"; do
         core) run core cargo test --quiet --manifest-path core/Cargo.toml --target-dir build/core ;;
         core-webkit) run core-webkit "$OUT/harness" webkit --core "$CORE/examples/harness" ;;
         core-spec) run core-spec spec_suite "$CORE/examples/harness" core-spec-rendered.json known-failures-core.txt ;;
-        core-converter) run core-converter tests/converter.sh "$CORE/peekdown-convert" "$CORE/examples/harness" ;;
+        core-converter) run core-converter tests/converter.sh "$CORE/peekdown-convert" "$CORE/examples/harness" --core ;;
         *) echo "알 수 없는 묶음: $suite"; FAILED+=("$suite") ;;
     esac
 done

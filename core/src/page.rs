@@ -1,7 +1,8 @@
 // 본문 HTML을 완성 페이지로 감싼다. 앱과 QuickLook이 같은 페이지를 띄운다.
 
-use crate::images::{inline_assets, inline_local_images};
-use crate::{render, textbundle};
+use crate::images::{BundleAssets, LocalImages};
+use crate::render::{render, render_with_images};
+use crate::textbundle;
 use std::path::Path;
 
 const CSS: &str = r#"* { margin: 0; padding: 0; box-sizing: border-box; }
@@ -138,19 +139,24 @@ fn new_nonce() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// .md 문서 전체 페이지. base_dir가 있으면 그 폴더 기준으로 로컬 이미지를 인라인한다.
+/// .md 문서 전체 페이지. base_dir가 있으면 그 폴더 기준으로 마크다운 이미지(`![](…)`)를 인라인한다.
+/// raw HTML `<img>`는 인라인하지 않는다.
 pub fn page_for_markdown(markdown: &str, base_dir: Option<&Path>) -> String {
-    let mut body = render(markdown);
-    if let Some(dir) = base_dir {
-        body = inline_local_images(&body, dir).0;
-    }
+    let body = match base_dir {
+        Some(dir) => {
+            let mut images = LocalImages::new(dir);
+            render_with_images(markdown, |url| images.resolve(url))
+        }
+        None => render(markdown),
+    };
     page(&body, "")
 }
 
 /// TextBundle(.textbundle 폴더)이나 TextPack(.textpack) 전체 페이지. 읽지 못하면 None.
 pub fn page_for_textbundle(path: &Path) -> Option<String> {
     let doc = textbundle::read(path)?;
-    Some(page(&inline_assets(&render(&doc.markdown), &doc.assets), ""))
+    let mut assets = BundleAssets::new(&doc.assets);
+    Some(page(&render_with_images(&doc.markdown, |url| assets.resolve(url)), ""))
 }
 
 /// 각주(#fn-1)처럼 지금 문서 안의 다른 위치로 옮겨 가는 링크인지 판단한다. 이런 이동은 막지 않는다.
