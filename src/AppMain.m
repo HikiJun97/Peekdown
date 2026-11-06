@@ -359,33 +359,39 @@
     NSString *dstPath = [[panel URL] path];
 
     NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:toolPath];
-    [task setArguments:@[srcPath, @"-o", dstPath]];
+    task.executableURL = [NSURL fileURLWithPath:toolPath];
+    task.arguments = @[srcPath, @"-o", dstPath];
     NSPipe *errPipe = [NSPipe pipe];
-    [task setStandardError:errPipe];
-    [task setStandardOutput:[NSPipe pipe]];
+    task.standardError = errPipe;
+    task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
 
-    @try {
-        [task launch];
-        [task waitUntilExit];
-    } @catch (NSException *exception) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"내보내기 실패";
-        alert.informativeText = exception.reason ?: @"unknown";
-        [alert runModal];
-        return;
-    }
-
-    if ([task terminationStatus] == 0) {
-        [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:dstPath]]];
-    } else {
-        NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
-        NSString *errMsg = [[NSString alloc] initWithData:errData encoding:NSUTF8StringEncoding];
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"내보내기 실패";
-        alert.informativeText = errMsg.length ? errMsg : @"unknown";
-        [alert runModal];
-    }
+    // 변환은 백그라운드에서 돌린다. 오류 출력을 먼저 끝까지 읽어 파이프를 비워야,
+    // 출력이 파이프 버퍼(약 64KB)를 넘어도 변환기와 앱이 서로를 기다리며 멈추지 않는다.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *launchError = nil;
+        NSString *errMsg = nil;
+        int status = -1;
+        if ([task launchAndReturnError:&launchError]) {
+            NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+            [task waitUntilExit];
+            status = task.terminationStatus;
+            errMsg = [[NSString alloc] initWithData:errData encoding:NSUTF8StringEncoding];
+        } else {
+            errMsg = launchError.localizedDescription;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (status == 0) {
+                [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:dstPath]]];
+                return;
+            }
+            NSString *message = errMsg.length ? errMsg : @"unknown";
+            if (message.length > 2000) message = [@"…" stringByAppendingString:[message substringFromIndex:message.length - 2000]];
+            NSAlert *alert = [[NSAlert alloc] init];
+            alert.messageText = @"내보내기 실패";
+            alert.informativeText = message;
+            [alert runModal];
+        });
+    });
 }
 
 + (NSPrintInfo *)a4PrintInfo {

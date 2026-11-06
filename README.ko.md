@@ -68,7 +68,7 @@
 
 ### TextPack과 PDF로 내보내기
 
-**File** → **Export as TextPack…**을 고르면 지금 문서와 문서에 들어간 이미지를 `.textpack` 파일 하나로 묶습니다. [TextBundle](http://textbundle.org)은 Bear, Ulysses 같은 마크다운 앱들이 함께 쓰는 공개 형식이고, TextPack은 이를 ZIP으로 묶은 것입니다. Peekdown은 ZIP 안에 `.textbundle` 폴더째 넣습니다.
+**File** → **Export as TextPack…**을 고르면 지금 문서와 문서에 들어간 이미지를 `.textpack` 파일 하나로 묶습니다. [TextBundle](http://textbundle.org)은 Bear, Ulysses 같은 마크다운 앱들이 함께 쓰는 공개 형식이고, TextPack은 이를 ZIP으로 묶은 것입니다. Peekdown은 ZIP 안에 `.textbundle` 폴더째 넣습니다. 로컬 이미지 파일만 담고, 원격 이미지(http, https)는 링크로 남깁니다.
 
 **File** → **Export as PDF…**를 고르면 지금 화면을 A4 PDF로 저장합니다.
 

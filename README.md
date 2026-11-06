@@ -68,7 +68,7 @@ Open several documents at once and they group into a single window as native mac
 
 ### Export to TextPack or PDF
 
-**File** → **Export as TextPack…** bundles the current document and its images into a single `.textpack` file. [TextBundle](http://textbundle.org) is an open format shared by Markdown apps such as Bear and Ulysses; a TextPack is a zipped TextBundle, and Peekdown writes the `.textbundle` folder inside the ZIP.
+**File** → **Export as TextPack…** bundles the current document and its images into a single `.textpack` file. [TextBundle](http://textbundle.org) is an open format shared by Markdown apps such as Bear and Ulysses; a TextPack is a zipped TextBundle, and Peekdown writes the `.textbundle` folder inside the ZIP. Only local image files are packed; remote images (http, https) stay as links.
 
 **File** → **Export as PDF…** renders the current view as an A4 PDF.
 
