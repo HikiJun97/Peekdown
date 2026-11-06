@@ -1,4 +1,4 @@
-# mdair Test Document
+# Peekdown Test Document
 
 ## Features
 
@@ -8,7 +8,7 @@ This is a **bold** text, *italic* text, and `inline code`.
 
 ```python
 def hello():
-    print("Hello, mdair!")
+    print("Hello, Peekdown!")
 ```
 
 ### List
@@ -28,7 +28,7 @@ def hello():
 
 | Name | Type | Description |
 |------|------|-------------|
-| mdair | QuickLook | Markdown previewer |
+| Peekdown | QuickLook | Markdown previewer |
 | macOS | OS | Apple's desktop OS |
 
 ### Blockquote
@@ -48,7 +48,7 @@ That's it! ~~deleted text~~ and ***bold italic***.
 
 ```mermaid
 graph TD
-    A[Markdown File] --> B[mdair]
+    A[Markdown File] --> B[Peekdown]
     B --> C[QuickLook Preview]
     B --> D[Standalone Viewer]
     C --> E[Finder Spacebar]

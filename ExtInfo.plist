@@ -7,13 +7,13 @@
     <key>CFBundleExecutable</key>
     <string>QLMarkdownPreview</string>
     <key>CFBundleIdentifier</key>
-    <string>com.mdair.app.qlpreview</string>
+    <string>io.github.hikijun97.peekdown.qlpreview</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>QLMarkdownPreview</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundlePackageType</key>

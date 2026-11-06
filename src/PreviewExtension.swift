@@ -49,7 +49,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         let baseDir = url.deletingLastPathComponent()
         let (body, missing) = MdairHTML.inlineLocalImages(rendered, baseDir: baseDir)
         let notice = missing > 0 ? """
-        <div class="mdair-notice"><strong>로컬 이미지를 표시할 수 없습니다.</strong><br>macOS QuickLook 미리보기는 보안 정책상 미리보기 파일 외 다른 파일에 접근할 수 없습니다. 이미지를 보려면 파일을 더블클릭하여 <strong>mdair</strong> 앱으로 열거나, <code>mdair-convert</code>로 <code>.mdair</code> 형식으로 변환하세요.</div>
+        <div class="mdair-notice"><strong>로컬 이미지를 표시할 수 없습니다.</strong><br>macOS QuickLook 미리보기는 보안 정책상 미리보기 파일 외 다른 파일에 접근할 수 없습니다. 이미지를 보려면 파일을 더블클릭하여 <strong>Peekdown</strong> 앱으로 열거나, <code>peekdown-convert</code>로 <code>.mdair</code> 형식으로 변환하세요.</div>
         """ : ""
         let html = MdairHTML.page(body: body, notice: notice)
         await withCheckedContinuation { continuation in
