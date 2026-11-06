@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 // 렌더러는 MdairRender.swift에 있다. 빌드할 때 swiftc가 이 헤더를 만든다.
 #import "MdairShared-Swift.h"
@@ -9,6 +10,7 @@
 // ---------------------------------------------------------------------------
 @interface MdairAppDelegate : NSObject <NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate>
 @property (strong) NSMutableArray<NSWindow *> *windows;
+@property (strong) MdairNavigationGuard *navigationGuard;
 - (IBAction)zoomIn:(id)sender;
 - (IBAction)zoomOut:(id)sender;
 - (IBAction)actualSize:(id)sender;
@@ -16,7 +18,7 @@
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument;
 - (void)presentDocumentWindow:(NSWindow *)window isDocument:(BOOL)isDocument;
 - (void)syncTabTitleForWindow:(NSWindow *)window;
-- (IBAction)exportAsMdair:(id)sender;
+- (IBAction)exportAsTextPack:(id)sender;
 - (IBAction)exportAsPDF:(id)sender;
 - (IBAction)printDocument:(id)sender;
 + (NSPrintInfo *)a4PrintInfo;
@@ -26,7 +28,10 @@
 
 - (instancetype)init {
     self = [super init];
-    if (self) _windows = [NSMutableArray array];
+    if (self) {
+        _windows = [NSMutableArray array];
+        _navigationGuard = [[MdairNavigationGuard alloc] init];
+    }
     return self;
 }
 
@@ -35,7 +40,7 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (self.windows.count == 0) {
-            [self openMarkdownString:@"# Peekdown\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md` or `.mdair` file onto this app or use **Open With** in Finder."
+            [self openMarkdownString:@"# Peekdown\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md`, `.textbundle` or `.textpack` file onto this app or use **Open With** in Finder."
                            withTitle:@"Peekdown"];
         }
     });
@@ -71,8 +76,9 @@
 
 - (void)openMarkdownFile:(NSString *)path {
     [self dismissWelcomeWindowIfPresent];
-    if ([[path pathExtension] caseInsensitiveCompare:@"mdair"] == NSOrderedSame) {
-        [self openMdairFile:path];
+    NSString *ext = path.pathExtension.lowercaseString;
+    if ([ext isEqualToString:@"textbundle"] || [ext isEqualToString:@"textpack"]) {
+        [self openTextBundle:path];
         return;
     }
 
@@ -99,10 +105,10 @@
     [self syncTabTitleForWindow:createdWindow];
 }
 
-- (void)openMdairFile:(NSString *)path {
-    NSString *html = [MdairHTML pageForMdairFile:path];
+- (void)openTextBundle:(NSString *)path {
+    NSString *html = [MdairHTML pageForTextBundle:path];
     if (!html) {
-        NSLog(@"Failed to read .mdair file: %@", path);
+        NSLog(@"Failed to read TextBundle: %@", path);
         return;
     }
 
@@ -231,7 +237,7 @@
 // The document filename (representedURL.lastPathComponent) is the single source
 // of truth: when a representedURL is present the title is forced to match it,
 // so the tab label always reflects the document — regardless of which creation
-// path (.md sets representedURL after present; .mdair sets it before) ran.
+// path (.md sets representedURL after present; TextBundle sets it before) ran.
 // Windows without a representedURL (e.g. the welcome window) keep their title.
 - (void)syncTabTitleForWindow:(NSWindow *)window {
     if (!window) return;
@@ -243,15 +249,25 @@
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    // 문서가 <meta refresh>나 폼 제출로 창을 다른 페이지로 옮기지 못하게 한다
+    if ([self.navigationGuard shouldBlock:navigationAction inWebView:webView]) {
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
     NSURL *url = navigationAction.request.URL;
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && url) {
+        // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 그대로 둔다
+        if ([MdairHTML isSameDocumentLink:url currentURL:webView.URL]) {
+            decisionHandler(WKNavigationActionPolicyAllow);
+            return;
+        }
         // 문서 속 링크로 앱이나 스크립트를 실행하지 못하게, 여는 대상을 제한한다
         NSString *scheme = url.scheme.lowercaseString;
         if ([@[@"http", @"https", @"mailto"] containsObject:scheme]) {
             [[NSWorkspace sharedWorkspace] openURL:url];
         } else if ([scheme isEqualToString:@"file"]) {
             NSSet *docExts = [NSSet setWithArray:@[@"md", @"markdown", @"mdown", @"mkd", @"mkdn",
-                                                   @"mdwn", @"mdtxt", @"mdtext", @"mdair"]];
+                                                   @"mdwn", @"mdtxt", @"mdtext", @"textbundle", @"textpack"]];
             if ([docExts containsObject:url.pathExtension.lowercaseString]) {
                 [self openMarkdownFile:url.path];
             } else {
@@ -308,7 +324,7 @@
     }
 }
 
-- (IBAction)exportAsMdair:(id)sender {
+- (IBAction)exportAsTextPack:(id)sender {
     NSWindow *window = [NSApp keyWindow];
     NSURL *src = [window representedURL];
     if (!src) {
@@ -320,9 +336,9 @@
     }
     NSString *srcPath = [src path];
     NSString *ext = [[srcPath pathExtension] lowercaseString];
-    if ([ext isEqualToString:@"mdair"]) {
+    if ([ext isEqualToString:@"textbundle"] || [ext isEqualToString:@"textpack"]) {
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"이미 .mdair 파일입니다";
+        alert.messageText = @"이미 TextBundle 문서입니다";
         [alert runModal];
         return;
     }
@@ -336,40 +352,46 @@
 
     NSSavePanel *panel = [NSSavePanel savePanel];
     NSString *defaultName = [[[srcPath lastPathComponent] stringByDeletingPathExtension]
-                             stringByAppendingPathExtension:@"mdair"];
+                             stringByAppendingPathExtension:@"textpack"];
     [panel setNameFieldStringValue:defaultName];
-    [panel setAllowedFileTypes:@[@"mdair"]];
+    [panel setAllowedContentTypes:@[[UTType typeWithFilenameExtension:@"textpack"]]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *dstPath = [[panel URL] path];
 
     NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:toolPath];
-    [task setArguments:@[srcPath, @"-o", dstPath]];
+    task.executableURL = [NSURL fileURLWithPath:toolPath];
+    task.arguments = @[srcPath, @"-o", dstPath];
     NSPipe *errPipe = [NSPipe pipe];
-    [task setStandardError:errPipe];
-    [task setStandardOutput:[NSPipe pipe]];
+    task.standardError = errPipe;
+    task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
 
-    @try {
-        [task launch];
-        [task waitUntilExit];
-    } @catch (NSException *exception) {
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"내보내기 실패";
-        alert.informativeText = exception.reason ?: @"unknown";
-        [alert runModal];
-        return;
-    }
-
-    if ([task terminationStatus] == 0) {
-        [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:dstPath]]];
-    } else {
-        NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
-        NSString *errMsg = [[NSString alloc] initWithData:errData encoding:NSUTF8StringEncoding];
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"내보내기 실패";
-        alert.informativeText = errMsg.length ? errMsg : @"unknown";
-        [alert runModal];
-    }
+    // 변환은 백그라운드에서 돌린다. 오류 출력을 먼저 끝까지 읽어 파이프를 비워야,
+    // 출력이 파이프 버퍼(약 64KB)를 넘어도 변환기와 앱이 서로를 기다리며 멈추지 않는다.
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *launchError = nil;
+        NSString *errMsg = nil;
+        int status = -1;
+        if ([task launchAndReturnError:&launchError]) {
+            NSData *errData = [[errPipe fileHandleForReading] readDataToEndOfFile];
+            [task waitUntilExit];
+            status = task.terminationStatus;
+            errMsg = [[NSString alloc] initWithData:errData encoding:NSUTF8StringEncoding];
+        } else {
+            errMsg = launchError.localizedDescription;
+        }
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (status == 0) {
+                [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:dstPath]]];
+                return;
+            }
+            NSString *message = errMsg.length ? errMsg : @"unknown";
+            if (message.length > 2000) message = [@"…" stringByAppendingString:[message substringFromIndex:message.length - 2000]];
+            NSAlert *alert = [[NSAlert alloc] init];
+            alert.messageText = @"내보내기 실패";
+            alert.informativeText = message;
+            [alert runModal];
+        });
+    });
 }
 
 + (NSPrintInfo *)a4PrintInfo {
@@ -410,7 +432,7 @@
 
     NSSavePanel *panel = [NSSavePanel savePanel];
     [panel setNameFieldStringValue:defaultName];
-    [panel setAllowedFileTypes:@[@"pdf"]];
+    [panel setAllowedContentTypes:@[UTTypePDF]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSURL *dstURL = [panel URL];
 
@@ -519,7 +541,7 @@ int main(int argc, const char *argv[]) {
         NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
         [fileMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
         [fileMenu addItem:[NSMenuItem separatorItem]];
-        [fileMenu addItemWithTitle:@"Export as .mdair…" action:@selector(exportAsMdair:) keyEquivalent:@""];
+        [fileMenu addItemWithTitle:@"Export as TextPack…" action:@selector(exportAsTextPack:) keyEquivalent:@""];
         [fileMenu addItemWithTitle:@"Export as PDF…" action:@selector(exportAsPDF:) keyEquivalent:@""];
         [fileMenu addItem:[NSMenuItem separatorItem]];
         [fileMenu addItemWithTitle:@"Print…" action:@selector(printDocument:) keyEquivalent:@"p"];

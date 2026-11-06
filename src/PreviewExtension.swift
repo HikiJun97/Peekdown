@@ -7,6 +7,7 @@ import WebKit
 class PreviewViewController: NSViewController, QLPreviewingController, WKNavigationDelegate {
     var webView: WKWebView!
     private var loadContinuation: CheckedContinuation<Void, Never>?
+    private let navigationGuard = NavigationGuard()
 
     override func loadView() {
         let config = WKWebViewConfiguration()
@@ -31,12 +32,20 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
     // (com.apple.private.launchservices.allowedtolaunchinothersessions 권한 필요).
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(navigationAction.navigationType == .linkActivated ? .cancel : .allow)
+        // 문서가 <meta refresh>나 폼 제출로 미리보기를 다른 페이지로 옮기지 못하게 한다
+        if navigationGuard.shouldBlock(navigationAction, in: webView) {
+            decisionHandler(.cancel)
+            return
+        }
+        // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 허용한다
+        let leavesDocument = navigationAction.navigationType == .linkActivated
+            && !MdairHTML.isSameDocumentLink(navigationAction.request.url, currentURL: webView.url)
+        decisionHandler(leavesDocument ? .cancel : .allow)
     }
 
     func preparePreviewOfFile(at url: URL) async throws {
-        if url.pathExtension.lowercased() == "mdair" {
-            try await prepareMdairPreview(at: url)
+        if ["textbundle", "textpack"].contains(url.pathExtension.lowercased()) {
+            try await prepareTextBundlePreview(at: url)
         } else {
             try await prepareMarkdownPreview(at: url)
         }
@@ -49,24 +58,26 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         let baseDir = url.deletingLastPathComponent()
         let (body, missing) = MdairHTML.inlineLocalImages(rendered, baseDir: baseDir)
         let notice = missing > 0 ? """
-        <div class="mdair-notice"><strong>로컬 이미지를 표시할 수 없습니다.</strong><br>macOS QuickLook 미리보기는 보안 정책상 미리보기 파일 외 다른 파일에 접근할 수 없습니다. 이미지를 보려면 파일을 더블클릭하여 <strong>Peekdown</strong> 앱으로 열거나, <code>peekdown-convert</code>로 <code>.mdair</code> 형식으로 변환하세요.</div>
+        <div class="mdair-notice"><strong>로컬 이미지를 표시할 수 없습니다.</strong><br>macOS QuickLook 미리보기는 보안 정책상 미리보기 파일 외 다른 파일에 접근할 수 없습니다. 이미지를 보려면 파일을 더블클릭하여 <strong>Peekdown</strong> 앱으로 열거나, <code>peekdown-convert</code>로 이미지를 함께 담은 <code>.textpack</code>으로 변환하세요.</div>
         """ : ""
         let html = MdairHTML.page(body: body, notice: notice)
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation
+                self.navigationGuard.prepareForLoad(in: self.webView)
                 self.webView.loadHTMLString(html, baseURL: baseDir)
             }
         }
     }
 
-    private func prepareMdairPreview(at url: URL) async throws {
-        let doc = try MdairParser().parse(fileURL: url)
+    private func prepareTextBundlePreview(at url: URL) async throws {
+        let doc = try TextBundleReader().read(url: url)
         let body = MdairHTML.inlineAssets(MarkdownRenderer().render(doc.markdown), assets: doc.assets)
         let html = MdairHTML.page(body: body)
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation
+                self.navigationGuard.prepareForLoad(in: self.webView)
                 self.webView.loadHTMLString(html, baseURL: nil)
             }
         }

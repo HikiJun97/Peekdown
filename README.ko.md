@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
+  <img src="https://img.shields.io/badge/Apple_silicon-only-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Apple silicon only">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
@@ -21,8 +22,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mdair-preview-dark.png">
-    <img src="docs/assets/mdair-preview.png" alt="Peekdown 미리보기" width="700">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/peekdown-preview-dark.png">
+    <img src="docs/assets/peekdown-preview.png" alt="Peekdown 미리보기" width="700">
   </picture>
 </p>
 
@@ -36,17 +37,19 @@
 | **독립 뷰어** | `.md` 파일을 더블클릭하거나 끌어다 놓으면 전용 창에서 열립니다 |
 | **창 탭** | 여러 문서를 macOS 기본 탭으로 한 창에 모아 엽니다 |
 | **다크 모드** | 시스템 설정에 맞춰 밝은 테마와 어두운 테마가 바뀝니다 |
+| **표준 마크다운** | [cmark-gfm](https://github.com/github/cmark-gfm)으로 CommonMark와 GitHub Flavored Markdown(표, 체크리스트, 취소선, 자동 링크, 각주)을 지원합니다 |
 | **Mermaid 다이어그램** | 오프라인에서도, QuickLook에서도 그려집니다 |
 | **안전한 기본값** | 문서에 넣은 스크립트는 실행되지 않고, 문서가 아무 로컬 파일이나 페이지에 싣지 못합니다 |
 | **확대·축소** | `⌘+`/`⌘-` 또는 트랙패드 핀치로 확대하고 축소합니다 |
 | **복사** | 텍스트를 선택하고 `⌘C`를 누르면 복사했다는 알림이 뜹니다 |
-| **내보내기** | 파일 메뉴에서 `.mdair`나 PDF로 내보냅니다 |
+| **TextBundle** | `.textbundle`과 `.textpack` 문서를 이미지와 함께 앱과 QuickLook에서 엽니다 |
+| **내보내기** | 파일 메뉴에서 TextPack이나 PDF로 내보냅니다 |
 | **실행 의존성 없음** | Electron이나 Node.js 없이 macOS 기본 기능만 씁니다 |
 
 ### 창 탭
 
 <p align="center">
-  <img src="docs/assets/mdair-tabs.png" alt="여러 문서를 창 탭으로 연 모습" width="700">
+  <img src="docs/assets/peekdown-tabs.png" alt="여러 문서를 창 탭으로 연 모습" width="700">
 </p>
 
 여러 문서를 한꺼번에 열면 macOS 기본 탭으로 한 창에 모입니다. `⌘⇧[` / `⌘⇧]`로 탭을 옮겨 다니고, **Window** 메뉴에서 *Merge All Windows*나 *Move Tab to New Window*를 쓸 수 있습니다. `⌘W`는 지금 보고 있는 탭만 닫습니다.
@@ -54,27 +57,28 @@
 ### 확대·축소
 
 <p align="center">
-  <img src="docs/assets/mdair-zoom.gif" alt="확대·축소 시연" width="700">
+  <img src="docs/assets/peekdown-zoom.gif" alt="확대·축소 시연" width="700">
 </p>
 
 ### 복사 알림
 
 <p align="center">
-  <img src="images/copy_function.jpg" alt="cmd+C로 텍스트 복사" width="700">
+  <img src="docs/assets/peekdown-copy.png" alt="cmd+C로 텍스트 복사" width="700">
 </p>
 
-### .mdair와 PDF로 내보내기
+### TextPack과 PDF로 내보내기
 
-**File** → **Export as .mdair…**를 고르면 지금 문서와 문서에 들어간 이미지를 `.mdair` 파일 하나로 묶습니다. mdair에서 온 형식이라 두 앱 어느 쪽에서 만든 파일이든 서로 열 수 있습니다.
+**File** → **Export as TextPack…**을 고르면 지금 문서와 문서에 들어간 이미지를 `.textpack` 파일 하나로 묶습니다. [TextBundle](http://textbundle.org)은 Bear, Ulysses 같은 마크다운 앱들이 함께 쓰는 공개 형식이고, TextPack은 이를 ZIP으로 묶은 것입니다. Peekdown은 ZIP 안에 `.textbundle` 폴더째 넣습니다. 로컬 이미지 파일만 담고, 원격 이미지(http, https)는 링크로 남깁니다.
 
 **File** → **Export as PDF…**를 고르면 지금 화면을 A4 PDF로 저장합니다.
 
 ## 로드맵
 
-- **표준 마크다운** — 정규식 렌더러를 [cmark-gfm](https://github.com/github/cmark-gfm)으로 바꿔 CommonMark와 GitHub Flavored Markdown을 온전히 지원합니다
 - **화면에서 바로 편집** — 편집 창을 따로 두지 않고, Notion처럼 렌더링된 문서에서 바로 고칩니다
 
 ## 설치
+
+Peekdown은 **macOS 13.0 이상의 Apple silicon Mac(M1 이후)**에서 돌아갑니다. Intel Mac은 지원하지 않습니다.
 
 아직 미리 빌드한 릴리스가 없습니다. 아래 방법으로 소스에서 빌드한 다음 `build/Peekdown.app`을 `/Applications/`에 복사하세요.
 
@@ -101,10 +105,11 @@ Peekdown은 Apple Developer ID로 서명하지 않아서 처음 열 때 macOS가
 
 ## 소스에서 빌드
 
-macOS 13.0 이상과 Xcode Command Line Tools가 필요합니다.
+macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합니다.
 
 ```bash
 ./scripts/build.sh          # build/Peekdown.app 생성
+tests/run.sh                # 빌드하고 전체 테스트 실행 (tests/README.md 참고)
 
 # 설치 파일 (선택)
 ./scripts/create-pkg.sh
@@ -115,18 +120,20 @@ macOS 13.0 이상과 Xcode Command Line Tools가 필요합니다.
 
 1. **Peekdown.app** — 문서 창. Objective-C(Cocoa + WebKit)로 만들었습니다
 2. **QLMarkdownPreview.appex** — 앱 안에 들어 있는 QuickLook 미리보기 확장
-3. **peekdown-convert** — 문서와 이미지를 `.mdair`로 묶는 명령줄 도구
+3. **peekdown-convert** — 문서와 이미지를 `.textpack`으로 묶는 명령줄 도구(`-o 이름.textbundle`이면 폴더로 저장)
 
-렌더링 코드는 Swift 파일 하나에 있고, 앱과 확장이 함께 씁니다. 화면 스타일은 CSS `prefers-color-scheme`로 macOS의 밝은 모드와 어두운 모드를 따라갑니다.
+마크다운 해석은 GitHub이 쓰는 CommonMark 구현체인 [cmark-gfm](https://github.com/github/cmark-gfm)이 맡습니다. C 소스를 `vendor/`에 넣어 두고 `build.sh`가 함께 컴파일합니다. 렌더링 코드는 Swift 파일 하나에 있고, 앱과 확장이 함께 씁니다. 화면 스타일은 CSS `prefers-color-scheme`로 macOS의 밝은 모드와 어두운 모드를 따라갑니다.
 
 QuickLook 확장은 macOS의 엄격한 샌드박스 안에서 돕니다. 문서 옆 파일을 읽지 못해 로컬 이미지 대신 안내 문구가 나오고, 네트워크에 접속하지 못하며, 링크를 브라우저로 열 수 없습니다. 이런 기능은 Peekdown 앱으로 열어서 쓰세요.
 
 ## 지원 형식
 
-`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.mdair`
+`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.textbundle` `.textpack`
 
 ## 라이선스
 
 [MIT](LICENSE). Copyright &copy; 2026 tykimos (원본 mdair), &copy; 2026 HikiJun97 (Peekdown).
 
 오프라인과 QuickLook에서도 다이어그램이 그려지도록 [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2(MIT)를 함께 배포합니다. 라이선스 전문은 [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt)에 있습니다.
+
+[cmark-gfm](https://github.com/github/cmark-gfm) 0.29.0.gfm.13(BSD-2-Clause 외)을 함께 배포합니다. 라이선스 전문은 [`vendor/cmark-gfm/COPYING`](vendor/cmark-gfm/COPYING)에 있습니다.
