@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
+  <img src="https://img.shields.io/badge/Apple_silicon-only-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Apple silicon only">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
@@ -76,6 +77,8 @@
 
 ## 설치
 
+Peekdown은 **macOS 13.0 이상의 Apple silicon Mac(M1 이후)**에서 돌아갑니다. Intel Mac은 지원하지 않습니다.
+
 아직 미리 빌드한 릴리스가 없습니다. 아래 방법으로 소스에서 빌드한 다음 `build/Peekdown.app`을 `/Applications/`에 복사하세요.
 
 ### Gatekeeper 경고 넘기기
@@ -101,7 +104,7 @@ Peekdown은 Apple Developer ID로 서명하지 않아서 처음 열 때 macOS가
 
 ## 소스에서 빌드
 
-macOS 13.0 이상과 Xcode Command Line Tools가 필요합니다.
+macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합니다.
 
 ```bash
 ./scripts/build.sh          # build/Peekdown.app 생성
