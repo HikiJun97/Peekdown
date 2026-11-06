@@ -1,15 +1,20 @@
 import Foundation
-import CommonCrypto
 
-// MARK: - MdairConverter CLI
-// Usage: peekdown-convert input.md [-o output.mdair]
+// MARK: - TextBundle Converter CLI
+// Usage: peekdown-convert input.md [-o output.textpack | output.textbundle]
+//
+// 마크다운과 그 문서가 참조하는 이미지를 TextBundle 하나로 묶는다. http://textbundle.org/spec/
+//   이름.textbundle/
+//     text.md      이미지 경로를 assets/… 로 바꾼 본문
+//     info.json    {"version": 2, "type": "net.daringfireball.markdown", …}
+//     assets/      이미지 파일
+// .textpack은 이 폴더를 통째로 ZIP으로 묶은 것이다(Obsidian Importer 등은 ZIP 안의 .textbundle 폴더를 찾는다).
 
-struct MdairConverter {
+struct TextBundleConverter {
     struct ImageRef {
         let fullMatch: String
         let alt: String
         let originalPath: String
-        var assetFilename: String
     }
 
     static func main() {
@@ -35,10 +40,11 @@ struct MdairConverter {
     }
 
     static func printUsage() {
-        print("Usage: peekdown-convert <input.md> [-o output.mdair]")
+        print("Usage: peekdown-convert <input.md> [-o output.textpack | output.textbundle]")
         print("")
-        print("Converts a Markdown file with images into a .mdair bundle.")
-        print("If -o is not specified, output filename is derived from input.")
+        print("Packs a Markdown file and its images into a TextBundle (http://textbundle.org).")
+        print("Writes a .textpack (zipped bundle) unless the output ends in .textbundle.")
+        print("If -o is not specified, writes <input name>.textpack next to the input.")
     }
 
     static func convert(inputPath: String, outputPath: String?) throws {
@@ -53,24 +59,25 @@ struct MdairConverter {
         var markdown = String(data: markdownData, encoding: .utf8)
             ?? String(data: markdownData, encoding: .isoLatin1) ?? ""
 
-        // Parse image references
-        let imageRefs = parseImageReferences(markdown)
+        // Determine output path. zip은 임시 폴더에서 실행하므로 상대 경로는 지금 작업 폴더 기준 절대 경로로 바꿔 둔다
+        let outputURL = outputPath.map { URL(fileURLWithPath: $0).absoluteURL }
+            ?? baseDir.appendingPathComponent(inputURL.deletingPathExtension().lastPathComponent + ".textpack")
+        let asFolder = outputURL.pathExtension.lowercased() == "textbundle"
+        let bundleName = outputURL.deletingPathExtension().lastPathComponent + ".textbundle"
 
-        // Create temp directory for building the archive
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        let assetsDir = tempDir.appendingPathComponent("assets")
+        // Build the bundle in a temp directory
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let bundleDir = tempDir.appendingPathComponent(bundleName)
+        let assetsDir = bundleDir.appendingPathComponent("assets")
         try FileManager.default.createDirectory(at: assetsDir, withIntermediateDirectories: true)
 
         // Track used filenames for collision resolution
         var usedFilenames: [String: Int] = [:]
 
         // Process each image
-        var processedRefs: [ImageRef] = []
-        for var ref in imageRefs {
+        for ref in parseImageReferences(markdown) {
             let resolvedFilename = resolveFilename(ref.originalPath, usedFilenames: &usedFilenames)
-            ref.assetFilename = resolvedFilename
-
             let copied = copyAsset(
                 originalPath: ref.originalPath,
                 baseDir: baseDir,
@@ -78,8 +85,7 @@ struct MdairConverter {
             )
 
             if copied {
-                processedRefs.append(ref)
-                // Rewrite path in markdown
+                // TextBundle 명세: 본문은 이미지를 assets/ 로 시작하는 상대 경로로 가리켜야 한다
                 let newRef = "![\(ref.alt)](assets/\(encodeDestination(resolvedFilename)))"
                 markdown = markdown.replacingOccurrences(of: ref.fullMatch, with: newRef)
             } else {
@@ -87,36 +93,28 @@ struct MdairConverter {
             }
         }
 
-        // Write content.md
-        let contentURL = tempDir.appendingPathComponent("content.md")
-        try markdown.write(to: contentURL, atomically: true, encoding: .utf8)
+        try markdown.write(to: bundleDir.appendingPathComponent("text.md"), atomically: true, encoding: .utf8)
+        try infoJSON().write(to: bundleDir.appendingPathComponent("info.json"))
 
-        // Generate manifest.json
-        let manifest = generateManifest(
-            markdown: markdown,
-            assets: processedRefs,
-            assetsDir: assetsDir
-        )
-        let manifestURL = tempDir.appendingPathComponent("manifest.json")
-        try manifest.write(to: manifestURL, atomically: true, encoding: .utf8)
-
-        // Determine output path
-        let finalOutput: String
-        if let out = outputPath {
-            // zip은 임시 폴더에서 실행하므로, 상대 경로는 지금 작업 폴더 기준 절대 경로로 바꿔 둔다
-            finalOutput = URL(fileURLWithPath: out).absoluteURL.path
+        try? FileManager.default.removeItem(at: outputURL)
+        if asFolder {
+            try FileManager.default.moveItem(at: bundleDir, to: outputURL)
         } else {
-            let name = inputURL.deletingPathExtension().lastPathComponent
-            finalOutput = baseDir.appendingPathComponent("\(name).mdair").path
+            try createZip(of: bundleName, in: tempDir, outputPath: outputURL.path)
         }
 
-        // Create ZIP using /usr/bin/zip
-        try createZip(sourceDir: tempDir, outputPath: finalOutput)
+        print("Created: \(outputURL.path)")
+    }
 
-        // Clean up
-        try? FileManager.default.removeItem(at: tempDir)
-
-        print("Created: \(finalOutput)")
+    /// TextBundle 명세 버전 2의 info.json
+    static func infoJSON() throws -> Data {
+        let info: [String: Any] = [
+            "version": 2,
+            "type": "net.daringfireball.markdown",
+            "transient": false,
+            "creatorIdentifier": "io.github.hikijun97.peekdown",
+        ]
+        return try JSONSerialization.data(withJSONObject: info, options: [.prettyPrinted, .sortedKeys])
     }
 
     static func parseImageReferences(_ markdown: String) -> [ImageRef] {
@@ -136,7 +134,7 @@ struct MdairConverter {
             let alt = String(markdown[altRange])
             let path = localPath(String(markdown[pathRange]))
 
-            return ImageRef(fullMatch: fullMatch, alt: alt, originalPath: path, assetFilename: "")
+            return ImageRef(fullMatch: fullMatch, alt: alt, originalPath: path)
         }
     }
 
@@ -242,90 +240,12 @@ struct MdairConverter {
         }
     }
 
-    static func generateManifest(markdown: String, assets: [ImageRef], assetsDir: URL) -> String {
-        // Extract title from first h1 heading
-        var title: String?
-        let lines = markdown.components(separatedBy: "\n")
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("# ") {
-                title = String(trimmed.dropFirst(2))
-                break
-            }
-        }
-
-        // Build asset entries
-        var assetEntries: [[String: Any]] = []
-        let fm = FileManager.default
-        for ref in assets {
-            let filePath = assetsDir.appendingPathComponent(ref.assetFilename).path
-            var entry: [String: Any] = [
-                "name": ref.assetFilename,
-                "mime": mimeType(for: ref.assetFilename)
-            ]
-
-            if let attrs = try? fm.attributesOfItem(atPath: filePath),
-               let size = attrs[.size] as? Int {
-                entry["size"] = size
-            }
-
-            if let data = fm.contents(atPath: filePath) {
-                entry["hash"] = "sha256:\(sha256Hex(data))"
-            }
-
-            assetEntries.append(entry)
-        }
-
-        // Build manifest
-        let iso8601 = ISO8601DateFormatter()
-        iso8601.formatOptions = [.withInternetDateTime]
-
-        var manifest: [String: Any] = [
-            "mdair_version": 1,
-            "created": iso8601.string(from: Date()),
-            "assets": assetEntries
-        ]
-        if let t = title {
-            manifest["title"] = t
-        }
-
-        guard let jsonData = try? JSONSerialization.data(
-            withJSONObject: manifest,
-            options: [.prettyPrinted, .sortedKeys]
-        ) else { return "{}" }
-
-        return String(data: jsonData, encoding: .utf8) ?? "{}"
-    }
-
-    static func mimeType(for filename: String) -> String {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        switch ext {
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "gif": return "image/gif"
-        case "svg": return "image/svg+xml"
-        case "webp": return "image/webp"
-        case "tiff", "tif": return "image/tiff"
-        default: return "image/png"
-        }
-    }
-
-    static func sha256Hex(_ data: Data) -> String {
-        var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        data.withUnsafeBytes { ptr in
-            _ = CC_SHA256(ptr.baseAddress, CC_LONG(data.count), &hash)
-        }
-        return hash.map { String(format: "%02x", $0) }.joined()
-    }
-
-    static func createZip(sourceDir: URL, outputPath: String) throws {
-        // Remove existing output file
-        try? FileManager.default.removeItem(atPath: outputPath)
-
+    /// 번들 폴더를 통째로 ZIP으로 묶어 .textpack을 만든다
+    static func createZip(of bundleName: String, in dir: URL, outputPath: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-r", "-q", outputPath, "content.md", "manifest.json", "assets"]
-        process.currentDirectoryURL = sourceDir
+        process.arguments = ["-r", "-q", outputPath, bundleName]
+        process.currentDirectoryURL = dir
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -351,4 +271,4 @@ struct MdairConverter {
 }
 
 // Entry point
-MdairConverter.main()
+TextBundleConverter.main()

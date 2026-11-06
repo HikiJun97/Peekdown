@@ -6,84 +6,68 @@ import CMarkGFM
 // 앱(Peekdown.app)과 QuickLook 확장이 함께 쓰는 렌더링 코드.
 // 앱은 ObjC라서 맨 아래 MdairHTML의 @objc 메서드로 부른다.
 
-// MARK: - ZIP Parser (Pure Foundation, Sandbox-Safe)
+// MARK: - ZIP Reader (Pure Foundation, Sandbox-Safe)
 
 struct ZipEntry {
-    let filename: String
-    let uncompressedSize: UInt32
+    let path: String
     let data: Data
 }
 
-struct ZipReader {
-    enum ZipError: Error {
-        case invalidArchive
-        case unsupportedCompression
-        case decompressionFailed
-        case pathTraversal
-    }
-
-    static func readEntries(from fileURL: URL) throws -> [ZipEntry] {
-        let data = try Data(contentsOf: fileURL)
-        var entries: [ZipEntry] = []
-        var offset = 0
-
-        while offset + 30 <= data.count {
-            let sig = data.subdata(in: offset..<offset+4)
-            // Local file header signature: 0x04034b50
-            guard sig == Data([0x50, 0x4b, 0x03, 0x04]) else { break }
-
-            let compressionMethod = data.readUInt16(at: offset + 8)
-            let compressedSize = data.readUInt32(at: offset + 18)
-            let uncompressedSize = data.readUInt32(at: offset + 22)
-            let filenameLen = data.readUInt16(at: offset + 26)
-            let extraLen = data.readUInt16(at: offset + 28)
-
-            let filenameStart = offset + 30
-            let filenameEnd = filenameStart + Int(filenameLen)
-            guard filenameEnd <= data.count else { break }
-
-            let filenameData = data.subdata(in: filenameStart..<filenameEnd)
-            let filename = String(data: filenameData, encoding: .utf8) ?? ""
-
-            let dataStart = filenameEnd + Int(extraLen)
-            let dataEnd = dataStart + Int(compressedSize)
-            guard dataEnd <= data.count else { break }
-
-            // Path traversal protection
-            let normalizedPath = filename.replacingOccurrences(of: "\\", with: "/")
-            if normalizedPath.contains("..") {
-                offset = dataEnd
-                continue
-            }
-
-            // Skip directories
-            if filename.hasSuffix("/") {
-                offset = dataEnd
-                continue
-            }
-
-            let compressedData = data.subdata(in: dataStart..<dataEnd)
-
-            let fileData: Data
-            if compressionMethod == 0 {
-                // Stored (no compression)
-                fileData = compressedData
-            } else if compressionMethod == 8 {
-                // Deflate
-                guard let decompressed = Self.inflate(compressedData, uncompressedSize: Int(uncompressedSize)) else {
-                    offset = dataEnd
-                    continue
-                }
-                fileData = decompressed
-            } else {
-                offset = dataEnd
-                continue
-            }
-
-            entries.append(ZipEntry(filename: filename, uncompressedSize: uncompressedSize, data: fileData))
-            offset = dataEnd
+enum ZipReader {
+    /// 파일 끝의 central directory를 읽어 항목을 푼다. 로컬 헤더에 크기를 0으로 적고 뒤에 데이터 디스크립터를
+    /// 두는 ZIP(Finder 압축, 스트리밍으로 만든 zip)도 읽을 수 있다. ZIP64와 암호화는 지원하지 않는다.
+    static func readEntries(from data: Data) -> [ZipEntry] {
+        // End of central directory: 시그니처 0x06054b50, 최소 22바이트, 그 뒤 주석이 최대 65535바이트
+        guard data.count >= 22 else { return [] }
+        var eocd = -1
+        var i = data.count - 22
+        let lowest = max(0, data.count - 22 - 0xFFFF)
+        while i >= lowest {
+            if data.readUInt32(at: i) == 0x06054b50 { eocd = i; break }
+            i -= 1
         }
+        guard eocd >= 0 else { return [] }
 
+        let count = Int(data.readUInt16(at: eocd + 10))
+        var offset = Int(data.readUInt32(at: eocd + 16))
+        var entries: [ZipEntry] = []
+        for _ in 0..<count {
+            guard offset + 46 <= data.count, data.readUInt32(at: offset) == 0x02014b50 else { break }
+            let method = data.readUInt16(at: offset + 10)
+            let compressedSize = Int(data.readUInt32(at: offset + 20))
+            let uncompressedSize = Int(data.readUInt32(at: offset + 24))
+            let nameLength = Int(data.readUInt16(at: offset + 28))
+            let extraLength = Int(data.readUInt16(at: offset + 30))
+            let commentLength = Int(data.readUInt16(at: offset + 32))
+            let localOffset = Int(data.readUInt32(at: offset + 42))
+            let nameEnd = offset + 46 + nameLength
+            guard nameEnd <= data.count else { break }
+            let nameData = data.subdata(in: offset + 46 ..< nameEnd)
+            let path = String(data: nameData, encoding: .utf8) ?? String(data: nameData, encoding: .isoLatin1) ?? ""
+            offset = nameEnd + extraLength + commentLength
+
+            // 폴더 항목과 경로 조작(../)은 건너뛴다
+            let components = path.replacingOccurrences(of: "\\", with: "/").split(separator: "/")
+            if path.hasSuffix("/") || components.contains("..") { continue }
+
+            // 로컬 헤더의 이름·extra 길이는 central directory와 다를 수 있어 따로 읽는다
+            guard localOffset + 30 <= data.count, data.readUInt32(at: localOffset) == 0x04034b50 else { continue }
+            let dataStart = localOffset + 30 + Int(data.readUInt16(at: localOffset + 26)) + Int(data.readUInt16(at: localOffset + 28))
+            let dataEnd = dataStart + compressedSize
+            guard dataEnd <= data.count else { continue }
+            let raw = data.subdata(in: dataStart..<dataEnd)
+
+            switch method {
+            case 0:  // stored
+                entries.append(ZipEntry(path: path, data: raw))
+            case 8:  // deflate
+                if let inflated = inflate(raw, uncompressedSize: uncompressedSize) {
+                    entries.append(ZipEntry(path: path, data: inflated))
+                }
+            default:
+                continue
+            }
+        }
         return entries
     }
 
@@ -108,64 +92,109 @@ struct ZipReader {
 }
 
 private extension Data {
+    // 정렬되지 않은 위치도 읽을 수 있게 바이트를 직접 조합한다(little-endian)
     func readUInt16(at offset: Int) -> UInt16 {
-        guard offset + 2 <= count else { return 0 }
-        return subdata(in: offset..<offset+2).withUnsafeBytes { $0.load(as: UInt16.self) }
+        guard offset >= 0, offset + 2 <= count else { return 0 }
+        let i = startIndex + offset
+        return UInt16(self[i]) | UInt16(self[i + 1]) << 8
     }
 
     func readUInt32(at offset: Int) -> UInt32 {
-        guard offset + 4 <= count else { return 0 }
-        return subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard offset >= 0, offset + 4 <= count else { return 0 }
+        let i = startIndex + offset
+        return UInt32(self[i]) | UInt32(self[i + 1]) << 8 | UInt32(self[i + 2]) << 16 | UInt32(self[i + 3]) << 24
     }
 }
 
-// MARK: - MdairParser
+// MARK: - TextBundle Reader
 
-struct MdairParser {
-    struct MdairDocument {
+/// TextBundle(.textbundle 폴더)과 TextPack(.textpack ZIP)을 읽는다. http://textbundle.org/spec/
+///   info.json   메타데이터
+///   text.*      본문(확장자 자유)
+///   assets/     본문이 assets/… 경로로 가리키는 첨부물
+struct TextBundleReader {
+    struct Document {
         let markdown: String
-        let assets: [String: Data]  // filename -> image data
+        let assets: [String: Data]  // 키는 "assets/" 뒤의 경로
     }
 
-    func parse(fileURL: URL) throws -> MdairDocument {
-        let entries = try ZipReader.readEntries(from: fileURL)
+    enum ReadError: Error { case noTextFile }
 
-        // Find content.md
-        var markdownData: Data?
-        if let contentEntry = entries.first(where: { $0.filename == "content.md" }) {
-            markdownData = contentEntry.data
-        } else if let firstMd = entries.first(where: { $0.filename.hasSuffix(".md") && !$0.filename.contains("/") }) {
-            markdownData = firstMd.data
+    func read(url: URL) throws -> Document {
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            return try document(from: try filesInDirectory(url))
         }
+        return try document(from: filesInPack(try Data(contentsOf: url)))
+    }
 
-        var markdown: String
-        if let md = markdownData {
-            markdown = String(data: md, encoding: .utf8) ?? String(data: md, encoding: .isoLatin1) ?? ""
-        } else {
-            markdown = ""
+    /// .textbundle 폴더 안의 파일을 번들 기준 상대 경로로 모은다
+    private func filesInDirectory(_ dir: URL) throws -> [String: Data] {
+        var files: [String: Data] = [:]
+        let root = dir.standardizedFileURL.path + "/"
+        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { return files }
+        for case let file as URL in walker {
+            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            let path = file.standardizedFileURL.path
+            guard path.hasPrefix(root) else { continue }
+            let relative = String(path.dropFirst(root.count))
+            // 본문과 첨부물만 읽는다
+            guard relative.hasPrefix("text.") || relative.hasPrefix("assets/") else { continue }
+            files[relative] = try Data(contentsOf: file)
         }
-        markdown = Self.encodeLegacyAssetSpaces(markdown)
+        return files
+    }
 
-        // Collect assets
+    /// .textpack ZIP을 번들 기준 상대 경로로 푼다. 명세가 ZIP 안 구조를 정하지 않아
+    /// 내용물이 바로 들어 있는 경우와 "이름.textbundle/" 폴더째 들어 있는 경우를 모두 받는다.
+    private func filesInPack(_ data: Data) -> [String: Data] {
+        let entries = ZipReader.readEntries(from: data).filter {
+            // macOS가 압축할 때 끼워 넣는 리소스 포크 사본은 버린다
+            !$0.path.hasPrefix("__MACOSX/") && !($0.path.split(separator: "/").last?.hasPrefix("._") ?? false)
+        }
+        var prefix = ""
+        if !entries.contains(where: { isTextFile($0.path) }),
+           let nested = entries.first(where: { $0.path.contains(".textbundle/") && isTextFile(String($0.path.split(separator: "/").last ?? "")) }),
+           let range = nested.path.range(of: ".textbundle/") {
+            prefix = String(nested.path[..<range.upperBound])
+        }
+        var files: [String: Data] = [:]
+        for entry in entries where entry.path.hasPrefix(prefix) {
+            files[String(entry.path.dropFirst(prefix.count))] = entry.data
+        }
+        return files
+    }
+
+    private func isTextFile(_ path: String) -> Bool {
+        path.hasPrefix("text.") && !path.contains("/")
+    }
+
+    private func document(from files: [String: Data]) throws -> Document {
+        // 본문은 text.* 하나다. 여러 개면 마크다운 확장자를 먼저 고른다
+        let preferred = ["md", "markdown", "mdown", "mkd", "txt"]
+        let textNames = files.keys.filter(isTextFile).sorted {
+            (preferred.firstIndex(of: ($0 as NSString).pathExtension.lowercased()) ?? preferred.count)
+                < (preferred.firstIndex(of: ($1 as NSString).pathExtension.lowercased()) ?? preferred.count)
+        }
+        guard let textName = textNames.first, let textData = files[textName] else { throw ReadError.noTextFile }
+        var markdown = String(data: textData, encoding: .utf8) ?? String(data: textData, encoding: .isoLatin1) ?? ""
+        markdown = Self.encodeAssetSpaces(markdown)
+
         var assets: [String: Data] = [:]
-        for entry in entries {
-            if entry.filename.hasPrefix("assets/") && entry.filename.count > 7 {
-                let assetName = String(entry.filename.dropFirst(7)) // drop "assets/"
-                assets[assetName] = entry.data
-            }
+        for (path, data) in files where path.hasPrefix("assets/") && path.count > 7 {
+            assets[String(path.dropFirst(7))] = data
         }
-
-        return MdairDocument(markdown: markdown, assets: assets)
+        return Document(markdown: markdown, assets: assets)
     }
 
     // 따옴표가 있으면 ![a](assets/x.png "제목") 같은 제목일 수 있어 건드리지 않는다
-    private static let legacyAssetLink = try! NSRegularExpression(pattern: #"(!\[[^\]\n]*\]\()(assets/[^)\n"']* [^)\n"']*)\)"#)
+    private static let unencodedAssetLink = try! NSRegularExpression(pattern: #"(!\[[^\]\n]*\]\()(assets/[^)\n"']* [^)\n"']*)\)"#)
 
-    /// mdair와 이전 변환기는 ![a](assets/a b.png)처럼 공백을 인코딩하지 않고 썼다.
-    /// CommonMark는 공백이 든 주소를 이미지로 보지 않으므로 공백만 %20으로 바꿔 예전 파일도 열리게 한다.
-    static func encodeLegacyAssetSpaces(_ markdown: String) -> String {
+    /// ![a](assets/a b.png)처럼 공백을 인코딩하지 않고 쓴 첨부물 경로는 CommonMark가 이미지로 보지 않는다.
+    /// 이런 파일을 만드는 앱도 있을 수 있어 공백만 %20으로 바꿔 읽는다.
+    static func encodeAssetSpaces(_ markdown: String) -> String {
         var result = markdown
-        for match in legacyAssetLink.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)).reversed() {
+        for match in unencodedAssetLink.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)).reversed() {
             guard let whole = Range(match.range, in: result),
                   let head = Range(match.range(at: 1), in: result),
                   let path = Range(match.range(at: 2), in: result) else { continue }
@@ -378,7 +407,7 @@ public final class MdairHTML: NSObject {
     /// 각주(#fn-1)처럼 지금 문서 안의 다른 위치로 옮겨 가는 링크인지 판단한다. 이런 이동은 막지 않는다.
     @objc(isSameDocumentLink:currentURL:)
     public static func isSameDocumentLink(_ url: URL?, currentURL: URL?) -> Bool {
-        // WebKit이 주는 about:blank#fn-1 은 URL.fragment가 nil이라 문자열로 # 앞부분을 비교한다(.mdair는 about:blank에서 열린다)
+        // WebKit이 주는 about:blank#fn-1 은 URL.fragment가 nil이라 문자열로 # 앞부분을 비교한다(TextBundle은 about:blank에서 열린다)
         guard let target = url?.absoluteString, let current = currentURL?.absoluteString,
               let hash = target.firstIndex(of: "#") else { return false }
         let currentBase = current.firstIndex(of: "#").map { String(current[..<$0]) } ?? current
@@ -448,7 +477,7 @@ public final class MdairHTML: NSObject {
         return (result, missingCount)
     }
 
-    /// .mdair 안의 assets/ 이미지를 data URI로 바꾼다. 없는 이미지는 "Image not found" 그림으로 채운다.
+    /// TextBundle 안의 assets/ 이미지를 data URI로 바꾼다. 없는 이미지는 "Image not found" 그림으로 채운다.
     static func inlineAssets(_ html: String, assets: [String: Data]) -> String {
         guard let regex = try? NSRegularExpression(
             pattern: #"(src|srcset)=\"assets/([^\"]+)\""#, options: []
@@ -485,10 +514,10 @@ public final class MdairHTML: NSObject {
         return page(body: body)
     }
 
-    /// .mdair 파일 전체 페이지. 읽지 못하면 nil.
-    @objc(pageForMdairFile:)
-    public static func page(forMdairFile path: String) -> String? {
-        guard let doc = try? MdairParser().parse(fileURL: URL(fileURLWithPath: path)) else { return nil }
+    /// TextBundle(.textbundle 폴더)이나 TextPack(.textpack) 전체 페이지. 읽지 못하면 nil.
+    @objc(pageForTextBundle:)
+    public static func page(forTextBundle path: String) -> String? {
+        guard let doc = try? TextBundleReader().read(url: URL(fileURLWithPath: path)) else { return nil }
         return page(body: inlineAssets(MarkdownRenderer().render(doc.markdown), assets: doc.assets))
     }
 }

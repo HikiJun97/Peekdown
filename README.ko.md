@@ -42,7 +42,8 @@
 | **안전한 기본값** | 문서에 넣은 스크립트는 실행되지 않고, 문서가 아무 로컬 파일이나 페이지에 싣지 못합니다 |
 | **확대·축소** | `⌘+`/`⌘-` 또는 트랙패드 핀치로 확대하고 축소합니다 |
 | **복사** | 텍스트를 선택하고 `⌘C`를 누르면 복사했다는 알림이 뜹니다 |
-| **내보내기** | 파일 메뉴에서 `.mdair`나 PDF로 내보냅니다 |
+| **TextBundle** | `.textbundle`과 `.textpack` 문서를 이미지와 함께 앱과 QuickLook에서 엽니다 |
+| **내보내기** | 파일 메뉴에서 TextPack이나 PDF로 내보냅니다 |
 | **실행 의존성 없음** | Electron이나 Node.js 없이 macOS 기본 기능만 씁니다 |
 
 ### 창 탭
@@ -65,9 +66,9 @@
   <img src="docs/assets/peekdown-copy.png" alt="cmd+C로 텍스트 복사" width="700">
 </p>
 
-### .mdair와 PDF로 내보내기
+### TextPack과 PDF로 내보내기
 
-**File** → **Export as .mdair…**를 고르면 지금 문서와 문서에 들어간 이미지를 `.mdair` 파일 하나로 묶습니다. mdair에서 온 형식이라 두 앱 어느 쪽에서 만든 파일이든 서로 열 수 있습니다.
+**File** → **Export as TextPack…**을 고르면 지금 문서와 문서에 들어간 이미지를 `.textpack` 파일 하나로 묶습니다. [TextBundle](http://textbundle.org)은 Bear, Ulysses 같은 마크다운 앱들이 함께 쓰는 공개 형식이고, TextPack은 이를 ZIP으로 묶은 것입니다. Peekdown은 ZIP 안에 `.textbundle` 폴더째 넣습니다.
 
 **File** → **Export as PDF…**를 고르면 지금 화면을 A4 PDF로 저장합니다.
 
@@ -118,7 +119,7 @@ macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합�
 
 1. **Peekdown.app** — 문서 창. Objective-C(Cocoa + WebKit)로 만들었습니다
 2. **QLMarkdownPreview.appex** — 앱 안에 들어 있는 QuickLook 미리보기 확장
-3. **peekdown-convert** — 문서와 이미지를 `.mdair`로 묶는 명령줄 도구
+3. **peekdown-convert** — 문서와 이미지를 `.textpack`으로 묶는 명령줄 도구(`-o 이름.textbundle`이면 폴더로 저장)
 
 마크다운 해석은 GitHub이 쓰는 CommonMark 구현체인 [cmark-gfm](https://github.com/github/cmark-gfm)이 맡습니다. C 소스를 `vendor/`에 넣어 두고 `build.sh`가 함께 컴파일합니다. 렌더링 코드는 Swift 파일 하나에 있고, 앱과 확장이 함께 씁니다. 화면 스타일은 CSS `prefers-color-scheme`로 macOS의 밝은 모드와 어두운 모드를 따라갑니다.
 
@@ -126,7 +127,7 @@ QuickLook 확장은 macOS의 엄격한 샌드박스 안에서 돕니다. 문서 
 
 ## 지원 형식
 
-`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.mdair`
+`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.textbundle` `.textpack`
 
 ## 라이선스
 

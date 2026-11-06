@@ -59,18 +59,28 @@
         </dict>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>mdair Document</string>
+            <string>TextBundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSTypeIsPackage</key>
+            <true/>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.textbundle.package</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>TextPack</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>LSHandlerRank</key>
             <string>Alternate</string>
             <key>LSItemContentTypes</key>
             <array>
-                <string>com.mdair.document</string>
-            </array>
-            <key>CFBundleTypeExtensions</key>
-            <array>
-                <string>mdair</string>
+                <string>org.textbundle.compressed</string>
             </array>
         </dict>
     </array>
@@ -78,22 +88,37 @@
     <array>
         <dict>
             <key>UTTypeIdentifier</key>
-            <string>com.mdair.document</string>
+            <string>org.textbundle.package</string>
             <key>UTTypeDescription</key>
-            <string>mdair Document</string>
+            <string>TextBundle</string>
             <key>UTTypeConformsTo</key>
             <array>
-                <string>public.data</string>
+                <string>com.apple.package</string>
                 <string>public.composite-content</string>
             </array>
             <key>UTTypeTagSpecification</key>
             <dict>
                 <key>public.filename-extension</key>
                 <array>
-                    <string>mdair</string>
+                    <string>textbundle</string>
                 </array>
-                <key>public.mime-type</key>
-                <string>application/x-mdair</string>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.textbundle.compressed</string>
+            <key>UTTypeDescription</key>
+            <string>TextPack</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.pkware.zip-archive</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>textpack</string>
+                </array>
             </dict>
         </dict>
         <dict>

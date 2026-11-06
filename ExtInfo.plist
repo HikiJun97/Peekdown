@@ -28,7 +28,8 @@
             <array>
                 <string>net.daringfireball.markdown</string>
                 <string>public.plain-text</string>
-                <string>com.mdair.document</string>
+                <string>org.textbundle.package</string>
+                <string>org.textbundle.compressed</string>
             </array>
             <key>QLSupportsSearchableItems</key>
             <true/>

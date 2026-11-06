@@ -104,14 +104,14 @@ swiftc \
 
 echo "  ✓ QLMarkdownPreview.appex"
 
-# --- 2b. Build MdairConverter CLI tool ---
+# --- 2b. Build TextBundle converter CLI tool ---
 echo "[2b/5] Building peekdown-convert..."
 swiftc \
     -target "$TARGET" \
-    -module-name MdairConverter \
+    -module-name TextBundleConverter \
     -o "$APP_BUNDLE/Contents/MacOS/peekdown-convert" \
     -import-objc-header /dev/null \
-    "$PROJECT_ROOT/src/MdairConverter.swift" \
+    "$PROJECT_ROOT/src/TextBundleConverter.swift" \
     2>&1
 
 echo "  ✓ peekdown-convert"
