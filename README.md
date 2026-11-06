@@ -41,7 +41,7 @@
 | **Dark Mode** | Automatic light/dark theme matching your system preference |
 | **Rich Markdown** | Headings, lists, tables, code blocks, blockquotes, checkboxes, images, links |
 | **Zero Dependencies** | Pure native macOS — no Electron, no Node.js, no frameworks |
-| **Tiny Footprint** | Under 200KB installed |
+| **Small Footprint** | About 8MB installed, mostly the bundled Mermaid library |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
 | **Copy** | Select text and `⌘C` to copy — a toast confirms the action |
 | **Edit Menu** | Standard Cut/Copy/Paste/Undo/Redo shortcuts |
@@ -168,3 +168,5 @@ The Markdown-to-HTML rendering is implemented natively in Objective-C and Swift 
 ## License
 
 [MIT](LICENSE) &copy; 2026 tykimos
+
+Bundles [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2 (MIT) so diagrams render offline and in QuickLook. See [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt).
