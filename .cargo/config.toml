@@ -1,0 +1,7 @@
+# 저장소 루트에서 cargo를 부를 때(scripts/build.sh, tests/run.sh) 쓰는 설정
+[build]
+target-dir = "build/core"
+
+[env]
+# 앱과 같은 최소 macOS 버전으로 빌드해, 링크할 때 버전이 어긋나지 않게 한다
+MACOSX_DEPLOYMENT_TARGET = "13.0"

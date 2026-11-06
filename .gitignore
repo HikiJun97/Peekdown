@@ -12,3 +12,6 @@ dist/
 .env.*
 .secrets
 .secrets/
+
+# cargo를 core/ 안에서 바로 부르면 생기는 출력 폴더(루트에서는 .cargo/config.toml에 따라 build/core)
+target/

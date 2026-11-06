@@ -142,14 +142,20 @@ fn new_nonce() -> String {
 /// .md 문서 전체 페이지. base_dir가 있으면 그 폴더 기준으로 마크다운 이미지(`![](…)`)를 인라인한다.
 /// raw HTML `<img>`는 인라인하지 않는다.
 pub fn page_for_markdown(markdown: &str, base_dir: Option<&Path>) -> String {
-    let body = match base_dir {
+    page(&markdown_body(markdown, base_dir).0, "")
+}
+
+/// [`page_for_markdown`]의 본문과, 읽지 못하거나 넣지 않은 로컬 이미지 수.
+/// QuickLook은 샌드박스라 로컬 이미지를 못 읽어서, 이 수로 안내 문구를 붙인다.
+pub fn markdown_body(markdown: &str, base_dir: Option<&Path>) -> (String, usize) {
+    match base_dir {
         Some(dir) => {
             let mut images = LocalImages::new(dir);
-            render_with_images(markdown, |url| images.resolve(url))
+            let body = render_with_images(markdown, |url| images.resolve(url));
+            (body, images.missing)
         }
-        None => render(markdown),
-    };
-    page(&body, "")
+        None => (render(markdown), 0),
+    }
 }
 
 /// TextBundle(.textbundle 폴더)이나 TextPack(.textpack) 전체 페이지. 읽지 못하면 None.

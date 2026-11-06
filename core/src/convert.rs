@@ -54,7 +54,7 @@ pub fn convert(input: &Path, output: Option<&Path>) -> Result<Report, String> {
         return Err(format!("File not found: {}", input.display()));
     }
     let bytes = fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let markdown = String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect());
+    let markdown = crate::decode_text(&bytes);
     let base_dir = input.parent().unwrap_or(Path::new("/")).to_path_buf();
 
     let output = match output {

@@ -97,7 +97,7 @@ fn document(mut files: HashMap<String, Vec<u8>>) -> Option<Document> {
     };
     let text_name = files.keys().filter(|k| is_text_file(k)).min_by_key(|k| (rank(k), (*k).clone()))?.clone();
     let text = files.remove(&text_name)?;
-    let markdown = String::from_utf8(text).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect());
+    let markdown = crate::decode_text(&text);
 
     let assets = files
         .into_iter()
