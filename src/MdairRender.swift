@@ -1,0 +1,578 @@
+import Foundation
+import Compression
+
+// 앱(mdair.app)과 QuickLook 확장이 함께 쓰는 렌더링 코드.
+// 앱은 ObjC라서 맨 아래 MdairHTML의 @objc 메서드로 부른다.
+
+// MARK: - ZIP Parser (Pure Foundation, Sandbox-Safe)
+
+struct ZipEntry {
+    let filename: String
+    let uncompressedSize: UInt32
+    let data: Data
+}
+
+struct ZipReader {
+    enum ZipError: Error {
+        case invalidArchive
+        case unsupportedCompression
+        case decompressionFailed
+        case pathTraversal
+    }
+
+    static func readEntries(from fileURL: URL) throws -> [ZipEntry] {
+        let data = try Data(contentsOf: fileURL)
+        var entries: [ZipEntry] = []
+        var offset = 0
+
+        while offset + 30 <= data.count {
+            let sig = data.subdata(in: offset..<offset+4)
+            // Local file header signature: 0x04034b50
+            guard sig == Data([0x50, 0x4b, 0x03, 0x04]) else { break }
+
+            let compressionMethod = data.readUInt16(at: offset + 8)
+            let compressedSize = data.readUInt32(at: offset + 18)
+            let uncompressedSize = data.readUInt32(at: offset + 22)
+            let filenameLen = data.readUInt16(at: offset + 26)
+            let extraLen = data.readUInt16(at: offset + 28)
+
+            let filenameStart = offset + 30
+            let filenameEnd = filenameStart + Int(filenameLen)
+            guard filenameEnd <= data.count else { break }
+
+            let filenameData = data.subdata(in: filenameStart..<filenameEnd)
+            let filename = String(data: filenameData, encoding: .utf8) ?? ""
+
+            let dataStart = filenameEnd + Int(extraLen)
+            let dataEnd = dataStart + Int(compressedSize)
+            guard dataEnd <= data.count else { break }
+
+            // Path traversal protection
+            let normalizedPath = filename.replacingOccurrences(of: "\\", with: "/")
+            if normalizedPath.contains("..") {
+                offset = dataEnd
+                continue
+            }
+
+            // Skip directories
+            if filename.hasSuffix("/") {
+                offset = dataEnd
+                continue
+            }
+
+            let compressedData = data.subdata(in: dataStart..<dataEnd)
+
+            let fileData: Data
+            if compressionMethod == 0 {
+                // Stored (no compression)
+                fileData = compressedData
+            } else if compressionMethod == 8 {
+                // Deflate
+                guard let decompressed = Self.inflate(compressedData, uncompressedSize: Int(uncompressedSize)) else {
+                    offset = dataEnd
+                    continue
+                }
+                fileData = decompressed
+            } else {
+                offset = dataEnd
+                continue
+            }
+
+            entries.append(ZipEntry(filename: filename, uncompressedSize: uncompressedSize, data: fileData))
+            offset = dataEnd
+        }
+
+        return entries
+    }
+
+    private static func inflate(_ data: Data, uncompressedSize: Int) -> Data? {
+        guard uncompressedSize > 0 else { return Data() }
+        let destSize = max(uncompressedSize, 256)
+        var destBuffer = [UInt8](repeating: 0, count: destSize)
+
+        let result = data.withUnsafeBytes { srcPtr -> Int in
+            guard let srcBase = srcPtr.baseAddress else { return 0 }
+            return compression_decode_buffer(
+                &destBuffer, destSize,
+                srcBase.assumingMemoryBound(to: UInt8.self), data.count,
+                nil,
+                COMPRESSION_ZLIB
+            )
+        }
+
+        guard result > 0 else { return nil }
+        return Data(destBuffer.prefix(result))
+    }
+}
+
+private extension Data {
+    func readUInt16(at offset: Int) -> UInt16 {
+        guard offset + 2 <= count else { return 0 }
+        return subdata(in: offset..<offset+2).withUnsafeBytes { $0.load(as: UInt16.self) }
+    }
+
+    func readUInt32(at offset: Int) -> UInt32 {
+        guard offset + 4 <= count else { return 0 }
+        return subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: UInt32.self) }
+    }
+}
+
+// MARK: - MdairParser
+
+struct MdairParser {
+    struct MdairDocument {
+        let markdown: String
+        let assets: [String: Data]  // filename -> image data
+    }
+
+    func parse(fileURL: URL) throws -> MdairDocument {
+        let entries = try ZipReader.readEntries(from: fileURL)
+
+        // Find content.md
+        var markdownData: Data?
+        if let contentEntry = entries.first(where: { $0.filename == "content.md" }) {
+            markdownData = contentEntry.data
+        } else if let firstMd = entries.first(where: { $0.filename.hasSuffix(".md") && !$0.filename.contains("/") }) {
+            markdownData = firstMd.data
+        }
+
+        let markdown: String
+        if let md = markdownData {
+            markdown = String(data: md, encoding: .utf8) ?? String(data: md, encoding: .isoLatin1) ?? ""
+        } else {
+            markdown = ""
+        }
+
+        // Collect assets
+        var assets: [String: Data] = [:]
+        for entry in entries {
+            if entry.filename.hasPrefix("assets/") && entry.filename.count > 7 {
+                let assetName = String(entry.filename.dropFirst(7)) // drop "assets/"
+                assets[assetName] = entry.data
+            }
+        }
+
+        return MdairDocument(markdown: markdown, assets: assets)
+    }
+}
+
+// MARK: - Markdown Renderer
+
+struct MarkdownRenderer {
+    func render(_ markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        var output: [String] = []
+        var inCodeBlock = false
+        var codeBlockContent: [String] = []
+        var codeBlockLang = ""
+        var inList = false
+        var inOrderedList = false
+        var inBlockquote = false
+        var inTable = false
+
+        func closeLists() {
+            if inList { output.append("</ul>"); inList = false }
+            if inOrderedList { output.append("</ol>"); inOrderedList = false }
+        }
+        func closeBlocks() {
+            closeLists()
+            if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
+            if inTable { output.append("</table>"); inTable = false }
+        }
+        func flushCodeBlock() {
+            let code = escapeHTML(codeBlockContent.joined(separator: "\n"))
+            // mermaid는 innerHTML의 엔티티를 풀어서 읽으므로 이스케이프해도 그대로 그려진다
+            if codeBlockLang == "mermaid" {
+                output.append("<pre class=\"mermaid\">\(code)</pre>")
+            } else {
+                output.append("<pre><code>\(code)</code></pre>")
+            }
+            codeBlockContent = []
+            codeBlockLang = ""
+            inCodeBlock = false
+        }
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Fenced code blocks
+            if trimmed.hasPrefix("```") {
+                if inCodeBlock {
+                    flushCodeBlock()
+                } else {
+                    closeBlocks()
+                    codeBlockLang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                    inCodeBlock = true
+                }
+                continue
+            }
+            if inCodeBlock {
+                codeBlockContent.append(line)
+                continue
+            }
+
+            // Horizontal rule
+            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                closeBlocks()
+                output.append("<hr>")
+                continue
+            }
+
+            // Headings
+            if let level = headingLevel(trimmed) {
+                closeBlocks()
+                let content = String(trimmed.dropFirst(level + 1))
+                output.append("<h\(level)>\(inline(content))</h\(level)>")
+                continue
+            }
+
+            // Blockquote
+            if trimmed.hasPrefix("> ") {
+                closeLists()
+                if inTable { output.append("</table>"); inTable = false }
+                if !inBlockquote { output.append("<blockquote>"); inBlockquote = true }
+                output.append(inline(String(trimmed.dropFirst(2))))
+                continue
+            } else if inBlockquote && trimmed.isEmpty {
+                output.append("</blockquote>"); inBlockquote = false
+            }
+
+            // Table
+            if trimmed.hasPrefix("|") {
+                let cleaned = trimmed.replacingOccurrences(of: "-", with: "")
+                    .replacingOccurrences(of: "|", with: "")
+                    .replacingOccurrences(of: ":", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if cleaned.isEmpty { continue } // separator row
+
+                if !inTable {
+                    closeLists()
+                    if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
+                    output.append("<table>")
+                    inTable = true
+                    output.append("<tr>" + tableCells(trimmed).map { "<th>\(inline($0))</th>" }.joined() + "</tr>")
+                } else {
+                    output.append("<tr>" + tableCells(trimmed).map { "<td>\(inline($0))</td>" }.joined() + "</tr>")
+                }
+                continue
+            } else if inTable {
+                output.append("</table>"); inTable = false
+            }
+
+            // Unordered list
+            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
+                if inOrderedList { output.append("</ol>"); inOrderedList = false }
+                if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
+                if !inList { output.append("<ul>"); inList = true }
+                var content = String(trimmed.dropFirst(2))
+                var checkbox = ""
+                if content.hasPrefix("[ ] ") {
+                    checkbox = "<input type='checkbox' disabled> "
+                    content = String(content.dropFirst(4))
+                } else if content.hasPrefix("[x] ") || content.hasPrefix("[X] ") {
+                    checkbox = "<input type='checkbox' checked disabled> "
+                    content = String(content.dropFirst(4))
+                }
+                output.append("<li>\(checkbox)\(inline(content))</li>")
+                continue
+            }
+
+            // Ordered list
+            if let range = trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
+                if inList { output.append("</ul>"); inList = false }
+                if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
+                if !inOrderedList { output.append("<ol>"); inOrderedList = true }
+                output.append("<li>\(inline(String(trimmed[range.upperBound...])))</li>")
+                continue
+            }
+
+            // Empty line
+            if trimmed.isEmpty {
+                closeLists()
+                output.append("")
+                continue
+            }
+
+            // HTML passthrough — lines starting with < are kept as-is
+            if trimmed.hasPrefix("<") {
+                closeBlocks()
+                output.append(line)
+                continue
+            }
+
+            // 목록 바로 다음 줄은 마지막 항목에 이어 붙인다 (GitHub과 같은 동작)
+            if (inList || inOrderedList), let last = output.last, last.hasSuffix("</li>") {
+                output[output.count - 1] = String(last.dropLast(5)) + " " + inline(trimmed) + "</li>"
+                continue
+            }
+
+            // Paragraph
+            output.append("<p>\(inline(trimmed))</p>")
+        }
+
+        // Close open tags
+        closeBlocks()
+        if inCodeBlock { flushCodeBlock() }
+
+        return output.joined(separator: "\n")
+    }
+
+    private func headingLevel(_ line: String) -> Int? {
+        for level in (1...6).reversed() {
+            let prefix = String(repeating: "#", count: level) + " "
+            if line.hasPrefix(prefix) { return level }
+        }
+        return nil
+    }
+
+    // 앞뒤 파이프만 떼고 나눠서 빈 셀도 자리를 지키게 한다
+    private func tableCells(_ row: String) -> [String] {
+        var inner = Substring(row)
+        if inner.hasPrefix("|") { inner = inner.dropFirst() }
+        if inner.hasSuffix("|") { inner = inner.dropLast() }
+        return inner.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    // 블록 하나의 텍스트에 인라인 서식을 적용한다. 인라인 코드 안은 건드리지 않는다.
+    private func inline(_ text: String) -> String {
+        var codeSpans: [String] = []
+        var html = replace(text, pattern: #"`([^`]+)`"#) { groups in
+            codeSpans.append("<code>\(escapeHTML(groups[1]))</code>")
+            return "\u{E000}\(codeSpans.count - 1)\u{E001}"
+        }
+
+        html = applyRegex(html, pattern: #"\*\*\*(.*?)\*\*\*"#, template: "<strong><em>$1</em></strong>")
+        html = applyRegex(html, pattern: #"\*\*(.*?)\*\*"#, template: "<strong>$1</strong>")
+        // 별표 바로 안쪽이 공백이면 강조가 아니다: "2 * 3 * 4"
+        html = applyRegex(html, pattern: #"(?<!\*)\*(?![\s*])(.+?)(?<![\s*])\*(?!\*)"#, template: "<em>$1</em>")
+        html = applyRegex(html, pattern: #"~~(.*?)~~"#, template: "<del>$1</del>")
+        html = applyRegex(html, pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#, template: "<img src=\"$2\" alt=\"$1\" style=\"max-width:100%;\">")
+        html = applyRegex(html, pattern: #"\[([^\]]+)\]\(([^)]+)\)"#, template: "<a href=\"$2\">$1</a>")
+
+        return replace(html, pattern: "\u{E000}(\\d+)\u{E001}") { groups in codeSpans[Int(groups[1])!] }
+    }
+
+    private func applyRegex(_ string: String, pattern: String, template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return string }
+        let range = NSRange(string.startIndex..., in: string)
+        return regex.stringByReplacingMatches(in: string, options: [], range: range, withTemplate: template)
+    }
+
+    // 매치마다 클로저로 치환 문자열을 만든다. groups[0]은 전체 매치.
+    private func replace(_ string: String, pattern: String, with transform: ([String]) -> String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return string }
+        var result = ""
+        var cursor = string.startIndex
+        for match in regex.matches(in: string, range: NSRange(string.startIndex..., in: string)) {
+            guard let whole = Range(match.range, in: string) else { continue }
+            let groups = (0..<match.numberOfRanges).map { i -> String in
+                Range(match.range(at: i), in: string).map { String(string[$0]) } ?? ""
+            }
+            result += string[cursor..<whole.lowerBound]
+            result += transform(groups)
+            cursor = whole.upperBound
+        }
+        result += string[cursor...]
+        return result
+    }
+}
+
+func escapeHTML(_ s: String) -> String {
+    s.replacingOccurrences(of: "&", with: "&amp;")
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+}
+
+// MARK: - Page & Image Inlining
+
+@objc(MdairHTML)
+public final class MdairHTML: NSObject {
+    static let css = """
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      max-width: 820px; margin: 0 auto; padding: 24px 40px; line-height: 1.7; font-size: 15px;
+    }
+    h1 { font-size: 2em; margin: 0.8em 0 0.4em; padding-bottom: 0.3em; border-bottom: 1px solid; }
+    h2 { font-size: 1.5em; margin: 0.8em 0 0.4em; padding-bottom: 0.2em; border-bottom: 1px solid; }
+    h3 { font-size: 1.25em; margin: 0.8em 0 0.4em; }
+    h4 { font-size: 1.1em; margin: 0.6em 0 0.3em; }
+    h5, h6 { font-size: 1em; margin: 0.6em 0 0.3em; }
+    p { margin: 0.6em 0; }
+    pre { padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 1em 0; }
+    code { font-family: 'SF Mono', Menlo, monospace; font-size: 0.9em; padding: 2px 6px; border-radius: 4px; }
+    pre code { padding: 0; font-size: inherit; }
+    blockquote { padding: 8px 16px; margin: 1em 0; border-left: 4px solid; border-radius: 2px; }
+    ul, ol { padding-left: 2em; margin: 0.5em 0; }
+    li { margin: 0.25em 0; }
+    table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+    th, td { padding: 8px 12px; border: 1px solid; text-align: left; }
+    th { font-weight: 600; }
+    hr { border: none; height: 1px; margin: 2em 0; }
+    img { max-width: 100%; border-radius: 4px; margin: 0.5em 0; }
+    a { text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    input[type=checkbox] { margin-right: 6px; }
+    .mdair-notice {
+      padding: 12px 16px; margin-bottom: 20px; border-radius: 8px;
+      border-left: 4px solid #f0a020; font-size: 13px; line-height: 1.5;
+    }
+    .mdair-notice code { padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+    #mdair-toast {
+      position: fixed; top: 16px; right: 16px;
+      padding: 6px 14px; border-radius: 6px;
+      font-size: 13px; font-weight: 500;
+      background: rgba(40,40,40,0.92); color: #fff;
+      opacity: 0; pointer-events: none;
+      transform: translateY(-8px);
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 99999;
+    }
+    #mdair-toast.show { opacity: 1; transform: translateY(0); }
+    @media (prefers-color-scheme: light) {
+      body { color: #24292f; background: #fff; }
+      h1, h2 { border-bottom-color: #d1d9e0; }
+      code { background: #eff1f3; } pre { background: #f6f8fa; }
+      blockquote { border-left-color: #d1d9e0; color: #59636e; background: #f6f8fa; }
+      th { background: #f6f8fa; } th, td { border-color: #d1d9e0; }
+      hr { background: #d1d9e0; } a { color: #0969da; }
+      .mdair-notice { background: #fff8e1; color: #6b4f00; }
+      .mdair-notice code { background: rgba(0,0,0,0.06); }
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #e6edf3; background: #0d1117; }
+      h1, h2 { border-bottom-color: #30363d; }
+      code { background: #262c36; } pre { background: #161b22; }
+      blockquote { border-left-color: #30363d; color: #8b949e; background: #161b22; }
+      th { background: #161b22; } th, td { border-color: #30363d; }
+      hr { background: #30363d; } a { color: #58a6ff; }
+      .mdair-notice { background: #2a2410; color: #e0c97a; }
+      .mdair-notice code { background: rgba(255,255,255,0.08); }
+    }
+    /* Print / PDF export — A4 paper with proper margins, readable colors, no awkward breaks */
+    @page { size: A4; margin: 18mm 16mm; }
+    @media print {
+      :root { color-scheme: light; }
+      html, body {
+        color: #24292f !important; background: #fff !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-size: 11pt;
+        line-height: 1.55;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      h1, h2, h3, h4, h5, h6 { page-break-after: avoid; break-after: avoid; }
+      h1 { border-bottom-color: #d1d9e0 !important; }
+      h2 { border-bottom-color: #d1d9e0 !important; }
+      p, li, blockquote { orphans: 3; widows: 3; }
+      pre, blockquote, table, figure, img {
+        page-break-inside: avoid; break-inside: avoid;
+      }
+      pre { background: #f6f8fa !important; border: 1px solid #e5e7eb; }
+      code { background: #eff1f3 !important; }
+      blockquote { background: #f6f8fa !important; border-left-color: #d1d9e0 !important; color: #59636e !important; }
+      th { background: #f6f8fa !important; }
+      th, td { border-color: #d1d9e0 !important; }
+      hr { background: #d1d9e0 !important; }
+      a { color: #0969da !important; text-decoration: none; }
+      img { max-width: 100% !important; height: auto; }
+      #mdair-toast { display: none !important; }
+    }
+    """
+
+    static func page(body: String, notice: String = "") -> String {
+        """
+        <!DOCTYPE html><html><head><meta charset='utf-8'>\
+        <style>\(css)</style></head>\
+        <body>\(notice)\(body)\
+        <script src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>\
+        <script>mermaid.initialize({startOnLoad:true,theme:'default'});</script>\
+        <script>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>\
+        </body></html>
+        """
+    }
+
+    static func mimeType(forExtension ext: String) -> String {
+        switch ext.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "svg": return "image/svg+xml"
+        case "webp": return "image/webp"
+        case "tiff", "tif": return "image/tiff"
+        default: return "image/png"
+        }
+    }
+
+    /// src="상대경로" 이미지를 baseDir 기준으로 읽어 data URI로 바꾼다. 못 읽은 개수도 돌려준다.
+    static func inlineLocalImages(_ html: String, baseDir: URL) -> (html: String, missingCount: Int) {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(src|srcset)=\"([^\"]+)\""#, options: []
+        ) else { return (html, 0) }
+        var result = html
+        var missingCount = 0
+        let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+        for match in matches.reversed() {
+            guard let attrRange = Range(match.range(at: 1), in: html),
+                  let pathRange = Range(match.range(at: 2), in: html) else { continue }
+            let attr = String(html[attrRange])
+            let path = String(html[pathRange])
+            if path.hasPrefix("http://") || path.hasPrefix("https://") || path.hasPrefix("data:") { continue }
+            let fileURL = path.hasPrefix("/") ? URL(fileURLWithPath: path) : baseDir.appendingPathComponent(path)
+            guard let imgData = try? Data(contentsOf: fileURL) else {
+                missingCount += 1
+                continue
+            }
+            let dataURI = "data:\(mimeType(forExtension: fileURL.pathExtension));base64,\(imgData.base64EncodedString())"
+            guard let swiftRange = Range(match.range(at: 0), in: result) else { continue }
+            result.replaceSubrange(swiftRange, with: "\(attr)=\"\(dataURI)\"")
+        }
+        return (result, missingCount)
+    }
+
+    /// .mdair 안의 assets/ 이미지를 data URI로 바꾼다. 없는 이미지는 "Image not found" 그림으로 채운다.
+    static func inlineAssets(_ html: String, assets: [String: Data]) -> String {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"(src|srcset)=\"assets/([^\"]+)\""#, options: []
+        ) else { return html }
+        var result = html
+        let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
+        for match in matches.reversed() {
+            guard let attrRange = Range(match.range(at: 1), in: result),
+                  let filenameRange = Range(match.range(at: 2), in: result),
+                  let swiftRange = Range(match.range(at: 0), in: result) else { continue }
+            let attr = String(result[attrRange])
+            let filename = String(result[filenameRange])
+
+            guard let imgData = assets[filename] else {
+                result.replaceSubrange(swiftRange, with: "\(attr)=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iNTAiPjx0ZXh0IHg9IjEwIiB5PSIzMCIgZmlsbD0iIzk5OSI+SW1hZ2Ugbm90IGZvdW5kPC90ZXh0Pjwvc3ZnPg==\"")
+                continue
+            }
+            let dataURI = "data:\(mimeType(forExtension: (filename as NSString).pathExtension));base64,\(imgData.base64EncodedString())"
+            result.replaceSubrange(swiftRange, with: "\(attr)=\"\(dataURI)\"")
+        }
+        return result
+    }
+
+    // MARK: ObjC 진입점 (mdair.app)
+
+    /// .md 문서 전체 페이지. baseDir가 있으면 로컬 이미지를 인라인한다.
+    @objc(pageForMarkdown:baseDir:)
+    public static func page(forMarkdown markdown: String, baseDir: String?) -> String {
+        var body = MarkdownRenderer().render(markdown)
+        if let baseDir = baseDir {
+            body = inlineLocalImages(body, baseDir: URL(fileURLWithPath: baseDir)).html
+        }
+        return page(body: body)
+    }
+
+    /// .mdair 파일 전체 페이지. 읽지 못하면 nil.
+    @objc(pageForMdairFile:)
+    public static func page(forMdairFile path: String) -> String? {
+        guard let doc = try? MdairParser().parse(fileURL: URL(fileURLWithPath: path)) else { return nil }
+        return page(body: inlineAssets(MarkdownRenderer().render(doc.markdown), assets: doc.assets))
+    }
+}

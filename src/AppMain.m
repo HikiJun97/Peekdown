@@ -1,9 +1,8 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
-// Reuse the markdown renderer from GeneratePreview.m
-extern NSString *markdownToHTML(NSString *markdown);
-extern NSString *getCSS(void);
+// 렌더러는 MdairRender.swift에 있다. 빌드할 때 swiftc가 이 헤더를 만든다.
+#import "MdairShared-Swift.h"
 
 // ---------------------------------------------------------------------------
 // App Delegate
@@ -17,7 +16,6 @@ extern NSString *getCSS(void);
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument;
 - (void)presentDocumentWindow:(NSWindow *)window isDocument:(BOOL)isDocument;
 - (void)syncTabTitleForWindow:(NSWindow *)window;
-- (NSString *)inlineLocalImagesInHTML:(NSString *)html baseDir:(NSString *)baseDir;
 - (IBAction)exportAsMdair:(id)sender;
 - (IBAction)exportAsPDF:(id)sender;
 - (IBAction)printDocument:(id)sender;
@@ -102,68 +100,11 @@ extern NSString *getCSS(void);
 }
 
 - (void)openMdairFile:(NSString *)path {
-    // Create temp directory
-    NSString *tempDir = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                         [[NSUUID UUID] UUIDString]];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    [fm createDirectoryAtPath:tempDir withIntermediateDirectories:YES attributes:nil error:nil];
-
-    // Unzip using /usr/bin/unzip (host app is NOT sandboxed)
-    NSTask *task = [[NSTask alloc] init];
-    [task setLaunchPath:@"/usr/bin/unzip"];
-    [task setArguments:@[@"-o", @"-q", path, @"-d", tempDir]];
-    [task setStandardOutput:[NSPipe pipe]];
-    [task setStandardError:[NSPipe pipe]];
-    [task launch];
-    [task waitUntilExit];
-
-    if ([task terminationStatus] != 0) {
-        NSLog(@"Failed to unzip .mdair file: %@", path);
-        [fm removeItemAtPath:tempDir error:nil];
+    NSString *html = [MdairHTML pageForMdairFile:path];
+    if (!html) {
+        NSLog(@"Failed to read .mdair file: %@", path);
         return;
     }
-
-    // Read content.md
-    NSString *contentPath = [tempDir stringByAppendingPathComponent:@"content.md"];
-    if (![fm fileExistsAtPath:contentPath]) {
-        // Fallback: find first .md file in root
-        NSArray *items = [fm contentsOfDirectoryAtPath:tempDir error:nil];
-        for (NSString *item in items) {
-            if ([[item pathExtension] caseInsensitiveCompare:@"md"] == NSOrderedSame) {
-                contentPath = [tempDir stringByAppendingPathComponent:item];
-                break;
-            }
-        }
-    }
-
-    NSError *error = nil;
-    NSString *markdown = [NSString stringWithContentsOfFile:contentPath
-                                                  encoding:NSUTF8StringEncoding
-                                                     error:&error];
-    if (!markdown) {
-        markdown = [NSString stringWithContentsOfFile:contentPath
-                                            encoding:NSISOLatin1StringEncoding
-                                               error:&error];
-    }
-    if (!markdown) {
-        NSLog(@"Failed to read content.md from .mdair: %@", path);
-        [fm removeItemAtPath:tempDir error:nil];
-        return;
-    }
-
-    // Render markdown to HTML, inlining assets as data URIs
-    NSString *body = markdownToHTML(markdown);
-    NSString *assetsDir = [tempDir stringByAppendingPathComponent:@"assets"];
-    body = [self inlineAssetsFromDirectory:body assetsDir:assetsDir];
-
-    NSString *css = getCSS();
-    NSString *html = [NSString stringWithFormat:
-        @"<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<style>%@</style></head><body>%@"
-        "<script src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>"
-        "<script>mermaid.initialize({startOnLoad:true,theme:'default'});</script>"
-        "<script>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>"
-        "</body></html>", css, body];
 
     NSString *title = [path lastPathComponent];
 
@@ -186,57 +127,12 @@ extern NSString *getCSS(void);
     WKWebView *webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
     [webView setAllowsMagnification:YES];
     [webView setNavigationDelegate:self];
-    [webView loadHTMLString:html baseURL:[NSURL fileURLWithPath:tempDir]];
+    [webView loadHTMLString:html baseURL:nil];
     [window setContentView:webView];
     [window setRepresentedURL:[NSURL fileURLWithPath:path]];
 
     [self.windows addObject:window];
     [self presentDocumentWindow:window isDocument:YES];
-
-    // Clean up temp directory after a delay to allow WebView to load
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)),
-                   dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        [[NSFileManager defaultManager] removeItemAtPath:tempDir error:nil];
-    });
-}
-
-- (NSString *)inlineAssetsFromDirectory:(NSString *)html assetsDir:(NSString *)assetsDir {
-    NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:assetsDir]) return html;
-
-    NSRegularExpression *regex = [NSRegularExpression
-        regularExpressionWithPattern:@"(src|srcset)=\"assets/([^\"]+)\""
-        options:0 error:nil];
-    if (!regex) return html;
-
-    NSMutableString *result = [html mutableCopy];
-    NSArray<NSTextCheckingResult *> *matches = [regex matchesInString:html options:0
-        range:NSMakeRange(0, html.length)];
-
-    for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
-        NSString *attr = [html substringWithRange:[match rangeAtIndex:1]];
-        NSString *filename = [html substringWithRange:[match rangeAtIndex:2]];
-        NSString *filePath = [assetsDir stringByAppendingPathComponent:filename];
-
-        if (![fm fileExistsAtPath:filePath]) continue;
-
-        NSData *imgData = [NSData dataWithContentsOfFile:filePath];
-        if (!imgData) continue;
-
-        NSString *ext = [[filename pathExtension] lowercaseString];
-        NSString *mime = @"image/png";
-        if ([ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) mime = @"image/jpeg";
-        else if ([ext isEqualToString:@"gif"]) mime = @"image/gif";
-        else if ([ext isEqualToString:@"svg"]) mime = @"image/svg+xml";
-        else if ([ext isEqualToString:@"webp"]) mime = @"image/webp";
-        else if ([ext isEqualToString:@"tiff"] || [ext isEqualToString:@"tif"]) mime = @"image/tiff";
-
-        NSString *b64 = [imgData base64EncodedStringWithOptions:0];
-        NSString *replacement = [NSString stringWithFormat:@"%@=\"data:%@;base64,%@\"", attr, mime, b64];
-        [result replaceCharactersInRange:[match range] withString:replacement];
-    }
-
-    return [result copy];
 }
 
 - (void)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title {
@@ -252,18 +148,7 @@ extern NSString *getCSS(void);
 }
 
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument {
-    NSString *body = markdownToHTML(markdown);
-    if (baseDir) {
-        body = [self inlineLocalImagesInHTML:body baseDir:baseDir];
-    }
-    NSString *css = getCSS();
-    NSString *html = [NSString stringWithFormat:
-        @"<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<style>%@</style></head><body>%@"
-        "<script src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>"
-        "<script>mermaid.initialize({startOnLoad:true,theme:'default'});</script>"
-        "<script>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>"
-        "</body></html>", css, body];
+    NSString *html = [MdairHTML pageForMarkdown:markdown baseDir:baseDir];
 
     NSRect frame = NSMakeRect(0, 0, 860, 700);
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
@@ -355,48 +240,6 @@ extern NSString *getCSS(void);
     if (filename.length > 0 && ![window.title isEqualToString:filename]) {
         [window setTitle:filename];
     }
-}
-
-- (NSString *)inlineLocalImagesInHTML:(NSString *)html baseDir:(NSString *)baseDir {
-    NSRegularExpression *regex = [NSRegularExpression
-        regularExpressionWithPattern:@"(src|srcset)=\"([^\"]+)\""
-        options:0 error:nil];
-    if (!regex) return html;
-
-    NSMutableString *result = [html mutableCopy];
-    NSArray<NSTextCheckingResult *> *matches = [regex matchesInString:html options:0
-        range:NSMakeRange(0, html.length)];
-
-    for (NSTextCheckingResult *match in [matches reverseObjectEnumerator]) {
-        NSString *attr = [html substringWithRange:[match rangeAtIndex:1]];
-        NSString *path = [html substringWithRange:[match rangeAtIndex:2]];
-
-        if ([path hasPrefix:@"http://"] || [path hasPrefix:@"https://"] || [path hasPrefix:@"data:"]) continue;
-
-        NSString *filePath;
-        if ([path hasPrefix:@"/"]) {
-            filePath = path;
-        } else {
-            filePath = [baseDir stringByAppendingPathComponent:path];
-        }
-
-        NSData *imgData = [NSData dataWithContentsOfFile:filePath];
-        if (!imgData) continue;
-
-        NSString *ext = [[path pathExtension] lowercaseString];
-        NSString *mime = @"image/png";
-        if ([ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) mime = @"image/jpeg";
-        else if ([ext isEqualToString:@"gif"]) mime = @"image/gif";
-        else if ([ext isEqualToString:@"svg"]) mime = @"image/svg+xml";
-        else if ([ext isEqualToString:@"webp"]) mime = @"image/webp";
-        else if ([ext isEqualToString:@"tiff"] || [ext isEqualToString:@"tif"]) mime = @"image/tiff";
-
-        NSString *b64 = [imgData base64EncodedStringWithOptions:0];
-        NSString *replacement = [NSString stringWithFormat:@"%@=\"data:%@;base64,%@\"", attr, mime, b64];
-        [result replaceCharactersInRange:[match range] withString:replacement];
-    }
-
-    return [result copy];
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {

@@ -19,19 +19,38 @@ cp "$PROJECT_ROOT/AppInfo.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_ROOT/resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 echo -n "APPLMDAR" > "$APP_BUNDLE/Contents/PkgInfo"
 
-clang \
-    -arch arm64 -arch x86_64 \
-    -mmacosx-version-min=13.0 \
-    -framework Cocoa \
-    -framework WebKit \
-    -framework Foundation \
-    -framework QuickLook \
-    -framework CoreServices \
-    -fobjc-arc \
-    -w \
-    -o "$APP_BUNDLE/Contents/MacOS/mdair" \
-    "$PROJECT_ROOT/src/AppMain.m" \
-    "$PROJECT_ROOT/src/GeneratePreview.m"
+# 렌더러(Swift)를 ObjC 앱에서 부를 수 있게 헤더를 만든 뒤, 아키텍처별로 빌드해 합친다
+OBJ_DIR="$BUILD_DIR/obj"
+mkdir -p "$OBJ_DIR"
+swiftc \
+    -target arm64-apple-macosx13.0 \
+    -module-name MdairShared \
+    -parse-as-library \
+    -typecheck \
+    -emit-objc-header-path "$OBJ_DIR/MdairShared-Swift.h" \
+    "$PROJECT_ROOT/src/MdairRender.swift"
+
+for ARCH in arm64 x86_64; do
+    clang \
+        -arch "$ARCH" \
+        -mmacosx-version-min=13.0 \
+        -fobjc-arc \
+        -fmodules \
+        -w \
+        -I "$OBJ_DIR" \
+        -c -o "$OBJ_DIR/AppMain-$ARCH.o" \
+        "$PROJECT_ROOT/src/AppMain.m"
+    swiftc \
+        -target "$ARCH-apple-macosx13.0" \
+        -module-name MdairShared \
+        -parse-as-library \
+        -framework Cocoa \
+        -framework WebKit \
+        -o "$OBJ_DIR/mdair-$ARCH" \
+        "$PROJECT_ROOT/src/MdairRender.swift" \
+        "$OBJ_DIR/AppMain-$ARCH.o"
+done
+lipo -create -output "$APP_BUNDLE/Contents/MacOS/mdair" "$OBJ_DIR/mdair-arm64" "$OBJ_DIR/mdair-x86_64"
 
 echo "  ✓ mdair.app"
 
@@ -50,6 +69,8 @@ swiftc \
     -Xlinker -rpath -Xlinker @executable_path/../../../../Frameworks \
     -Xlinker -e -Xlinker _NSExtensionMain \
     -import-objc-header /dev/null \
+    -disable-bridging-pch \
+    "$PROJECT_ROOT/src/MdairRender.swift" \
     "$PROJECT_ROOT/src/PreviewExtension.swift" \
     2>&1
 
