@@ -2,34 +2,31 @@
   <strong>English</strong> · <a href="README.ko.md">Korean</a>
 </p>
 
-# mdair — Markdown Air Previewer
+# Peekdown
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
-  <a href="https://github.com/tykimos/mdair/releases"><img src="https://img.shields.io/github/v/release/tykimos/mdair?style=for-the-badge" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/Swift-5.9-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
+  <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
 </p>
 
 <p align="center">
-  <strong>Breathe life into your Markdown files — preview them instantly in Finder.</strong>
+  <strong>Preview Markdown instantly in Finder — and, soon, edit it right where it's rendered.</strong>
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> · <a href="#installation">Installation</a> · <a href="#build-from-source">Build</a> · <a href="#how-it-works">How it works</a> · <a href="#license">License</a>
-</p>
+> Peekdown started as a fork of [**mdair**](https://github.com/tykimos/mdair) by [tykimos](https://github.com/tykimos) and is now developed as a separate project. Thanks to the original author for the foundation.
 
 ---
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mdair-preview-dark.png">
-    <img src="docs/assets/mdair-preview.png" alt="mdair preview" width="700">
+    <img src="docs/assets/mdair-preview.png" alt="Peekdown preview" width="700">
   </picture>
 </p>
 
-**mdair** is a lightweight macOS app that brings native QuickLook preview to Markdown files. Just press `Space` on any `.md` file in Finder to see a beautifully rendered preview — no extra app needed.
+**Peekdown** is a lightweight native macOS app that adds QuickLook preview for Markdown files. Press `Space` on any `.md` file in Finder to see it rendered, or open it in the Peekdown window.
 
 ## Features
 
@@ -39,14 +36,12 @@
 | **Standalone Viewer** | Double-click or drag `.md` files to open in a dedicated window |
 | **Window Tabs** | Open multiple documents as native macOS tabs in a single window |
 | **Dark Mode** | Automatic light/dark theme matching your system preference |
-| **Rich Markdown** | Headings, lists, tables, code blocks, blockquotes, checkboxes, images, links |
-| **Zero Dependencies** | Pure native macOS — no Electron, no Node.js, no frameworks |
-| **Small Footprint** | About 8MB installed, mostly the bundled Mermaid library |
+| **Mermaid Diagrams** | Rendered offline, in QuickLook as well as in the app |
+| **Safe by Default** | Scripts embedded in documents never run, and documents can't pull arbitrary local files into the page |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
 | **Copy** | Select text and `⌘C` to copy — a toast confirms the action |
-| **Edit Menu** | Standard Cut/Copy/Paste/Undo/Redo shortcuts |
 | **Export** | Export to `.mdair` or PDF from the File menu |
-| **Image Inlining** | Local images embedded as data URIs when opened with mdair.app |
+| **No Runtime Dependencies** | Pure native macOS — no Electron, no Node.js |
 
 ### Window Tabs
 
@@ -68,105 +63,70 @@ Open several documents at once and they group into a single window as native mac
   <img src="images/copy_function.jpg" alt="Copy text with cmd+C" width="700">
 </p>
 
-Select any text in a preview window and press `⌘C` to copy. A subtle toast appears in the top-right corner to confirm the copy action.
-
 ### Export to .mdair or PDF
 
-Open **File** → **Export as .mdair…** to bundle the current Markdown document together with all referenced images into a single `.mdair` archive.
+**File** → **Export as .mdair…** bundles the current document and its images into a single `.mdair` archive. The format comes from mdair, so archives made by either app open in both.
 
-Open **File** → **Export as PDF…** to render the current view as a PDF using WebKit's native PDF engine — preserves dark/light theme and zoom level.
+**File** → **Export as PDF…** renders the current view as an A4 PDF.
+
+## Roadmap
+
+- **Standard Markdown** — replace the regex-based renderer with [cmark-gfm](https://github.com/github/cmark-gfm) for full CommonMark + GitHub Flavored Markdown support
+- **In-place editing** — edit directly on the rendered document, Notion-style, instead of a separate editor pane
 
 ## Installation
 
-### Download
-
-Grab the latest release from the [Releases](https://github.com/tykimos/mdair/releases) page:
-
-- **`mdair.pkg`** — Double-click to install (recommended)
-- **`mdair.dmg`** — Open and run the PKG installer inside
+There are no prebuilt releases yet. Build from source (below), then copy `build/Peekdown.app` to `/Applications/`.
 
 ### Bypassing Gatekeeper
 
-Since mdair is not signed with an Apple Developer ID, macOS may block the installer. To open it:
+Peekdown is not signed with an Apple Developer ID, so macOS may block it the first time:
 
-1. **Right-click** `mdair.pkg` → select **Open** → click **Open** in the dialog
+1. **Right-click** `Peekdown.app` → **Open** → click **Open** in the dialog
 2. Or go to **System Settings → Privacy & Security** → click **Open Anyway**
-
-### After Installation
-
-The QuickLook extension activates automatically. Navigate to any `.md` file in Finder and press `Space` to preview.
 
 ### macOS Configuration
 
-#### Enable Single-Click QuickLook (Finder Settings)
+#### Set Peekdown as the Default App for `.md` Files
 
-By default, you need to press `Space` to trigger QuickLook. To show previews automatically when selecting a file:
+1. **Right-click** any `.md` file in Finder → **Get Info** (`⌘I`)
+2. Under **Open with**, choose **Peekdown**
+3. Click **Change All...** → **Continue**
 
-1. Open **Finder** → **Settings** (or press `⌘,`)
-2. Go to the **General** tab
-3. Check **"Show preview in Quick Look"** (available on macOS Ventura and later)
-
-Alternatively, enable it via Terminal:
-
-```bash
-defaults write com.apple.finder QLEnableTextSelection -bool true
-defaults write com.apple.finder QLInlinePreviewMinimumSupportedSize -int 0
-killall Finder
-```
-
-#### Set mdair as the Default App for `.md` Files
-
-To open all Markdown files with mdair by default:
-
-1. **Right-click** any `.md` file in Finder
-2. Select **Get Info** (or press `⌘I`)
-3. Under **Open with**, select **mdair** from the dropdown
-4. Click **Change All...** → confirm with **Continue**
-
-This makes mdair the default viewer for all `.md` files.
-
-#### Verify QuickLook Extension is Active
-
-If QuickLook preview doesn't work after installation:
+#### Verify the QuickLook Extension is Active
 
 1. Go to **System Settings → Extensions → Quick Look**
 2. Make sure **QLMarkdownPreview** is checked
-3. If it doesn't appear, try restarting Finder:
-
-```bash
-killall Finder
-```
+3. If it doesn't appear, restart Finder: `killall Finder`
 
 ## Build from Source
 
 Requires Xcode Command Line Tools on macOS 13.0+.
 
 ```bash
-# Build the app
-./scripts/build.sh
+./scripts/build.sh          # builds build/Peekdown.app
 
-# Create installer (optional)
+# Optional installers
 ./scripts/create-pkg.sh
 ./scripts/create-dmg.sh
 ```
 
-The built app is at `build/mdair.app`. Copy it to `/Applications/` to install manually.
-
 ## How it works
 
-mdair consists of two components:
+1. **Peekdown.app** — the viewer window, written in Objective-C (Cocoa + WebKit)
+2. **QLMarkdownPreview.appex** — the QuickLook Preview Extension bundled inside the app
+3. **peekdown-convert** — a command-line tool that packs a document and its images into `.mdair`
 
-1. **mdair.app** — A standalone Markdown viewer built with Cocoa + WebKit
-2. **QLMarkdownPreview.appex** — A QuickLook Preview Extension bundled inside the app
+Rendering lives in one Swift file shared by the app and the extension. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
 
-The Markdown-to-HTML rendering is implemented natively in Objective-C and Swift — no external libraries required. Styling adapts to macOS light/dark mode using CSS `prefers-color-scheme`.
+QuickLook extensions run in a strict macOS sandbox: they can't read files next to the document (local images show a notice instead), can't reach the network, and can't open links in a browser. Open the document in Peekdown for those.
 
 ## Supported Formats
 
-`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext`
+`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.mdair`
 
 ## License
 
-[MIT](LICENSE) &copy; 2026 tykimos
+[MIT](LICENSE). Copyright &copy; 2026 tykimos (original mdair), &copy; 2026 HikiJun97 (Peekdown).
 
 Bundles [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2 (MIT) so diagrams render offline and in QuickLook. See [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt).
