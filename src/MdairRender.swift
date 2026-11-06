@@ -347,8 +347,13 @@ struct MarkdownRenderer {
         // 별표 바로 안쪽이 공백이면 강조가 아니다: "2 * 3 * 4"
         html = applyRegex(html, pattern: #"(?<!\*)\*(?![\s*])(.+?)(?<![\s*])\*(?!\*)"#, template: "<em>$1</em>")
         html = applyRegex(html, pattern: #"~~(.*?)~~"#, template: "<del>$1</del>")
-        html = applyRegex(html, pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#, template: "<img src=\"$2\" alt=\"$1\" style=\"max-width:100%;\">")
-        html = applyRegex(html, pattern: #"\[([^\]]+)\]\(([^)]+)\)"#, template: "<a href=\"$2\">$1</a>")
+        // URL과 alt는 속성값이라 따옴표를 이스케이프해야 onerror= 같은 속성을 끼워 넣지 못한다
+        html = replace(html, pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#) { g in
+            "<img src=\"\(escapeAttribute(g[2]))\" alt=\"\(escapeAttribute(g[1]))\" style=\"max-width:100%;\">"
+        }
+        html = replace(html, pattern: #"\[([^\]]+)\]\(([^)]+)\)"#) { g in
+            "<a href=\"\(escapeAttribute(g[2]))\">\(g[1])</a>"
+        }
 
         return replace(html, pattern: "\u{E000}(\\d+)\u{E001}") { groups in codeSpans[Int(groups[1])!] }
     }
@@ -382,6 +387,10 @@ func escapeHTML(_ s: String) -> String {
     s.replacingOccurrences(of: "&", with: "&amp;")
         .replacingOccurrences(of: "<", with: "&lt;")
         .replacingOccurrences(of: ">", with: "&gt;")
+}
+
+func escapeAttribute(_ s: String) -> String {
+    escapeHTML(s).replacingOccurrences(of: "\"", with: "&quot;")
 }
 
 // MARK: - Page & Image Inlining
@@ -484,14 +493,18 @@ public final class MdairHTML: NSObject {
     }
     """
 
+    /// 문서 본문은 HTML을 그대로 통과시키므로, CSP로 우리가 넣은 스크립트(nonce가 맞는 것)만 실행한다.
+    /// 본문에 끼워 넣은 <script>, onerror= 같은 인라인 핸들러, javascript: URL은 막힌다.
     static func page(body: String, notice: String = "") -> String {
-        """
+        let nonce = UUID().uuidString
+        return """
         <!DOCTYPE html><html><head><meta charset='utf-8'>\
+        <meta http-equiv='Content-Security-Policy' content="script-src 'nonce-\(nonce)'; object-src 'none'; base-uri 'none'">\
         <style>\(css)</style></head>\
         <body>\(notice)\(body)\
-        <script src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>\
-        <script>mermaid.initialize({startOnLoad:true,theme:'default'});</script>\
-        <script>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>\
+        <script nonce='\(nonce)' src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>\
+        <script nonce='\(nonce)'>mermaid.initialize({startOnLoad:true,theme:'default'});</script>\
+        <script nonce='\(nonce)'>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>\
         </body></html>
         """
     }
@@ -507,10 +520,13 @@ public final class MdairHTML: NSObject {
         }
     }
 
-    /// src="상대경로" 이미지를 baseDir 기준으로 읽어 data URI로 바꾼다. 못 읽은 개수도 돌려준다.
+    static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "tiff", "tif"]
+
+    /// <img src="로컬경로">를 baseDir 기준으로 읽어 data URI로 바꾼다. 못 읽은 개수도 돌려준다.
+    /// 문서가 아무 파일이나 페이지에 싣지 못하도록 <img>의 이미지 확장자 파일만 읽는다.
     static func inlineLocalImages(_ html: String, baseDir: URL) -> (html: String, missingCount: Int) {
         guard let regex = try? NSRegularExpression(
-            pattern: #"(src|srcset)=\"([^\"]+)\""#, options: []
+            pattern: #"(<img\b[^>]*?\ssrc=\")([^\"]+)\""#, options: [.caseInsensitive]
         ) else { return (html, 0) }
         var result = html
         var missingCount = 0
@@ -520,15 +536,20 @@ public final class MdairHTML: NSObject {
                   let pathRange = Range(match.range(at: 2), in: html) else { continue }
             let attr = String(html[attrRange])
             let path = String(html[pathRange])
+                .replacingOccurrences(of: "&quot;", with: "\"")
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&amp;", with: "&")
             if path.hasPrefix("http://") || path.hasPrefix("https://") || path.hasPrefix("data:") { continue }
             let fileURL = path.hasPrefix("/") ? URL(fileURLWithPath: path) : baseDir.appendingPathComponent(path)
+            guard imageExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
             guard let imgData = try? Data(contentsOf: fileURL) else {
                 missingCount += 1
                 continue
             }
             let dataURI = "data:\(mimeType(forExtension: fileURL.pathExtension));base64,\(imgData.base64EncodedString())"
             guard let swiftRange = Range(match.range(at: 0), in: result) else { continue }
-            result.replaceSubrange(swiftRange, with: "\(attr)=\"\(dataURI)\"")
+            result.replaceSubrange(swiftRange, with: "\(attr)\(dataURI)\"")
         }
         return (result, missingCount)
     }
