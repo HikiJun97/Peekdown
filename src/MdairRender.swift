@@ -262,7 +262,7 @@ public final class MdairHTML: NSObject {
     p { margin: 0.6em 0; }
     pre { padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 1em 0; }
     code { font-family: 'SF Mono', Menlo, monospace; font-size: 0.9em; padding: 2px 6px; border-radius: 4px; }
-    pre code { padding: 0; font-size: inherit; }
+    pre code { padding: 0; font-size: inherit; background: transparent; }
     blockquote { padding: 8px 16px; margin: 1em 0; border-left: 4px solid; border-radius: 2px; }
     ul, ol { padding-left: 2em; margin: 0.5em 0; }
     li { margin: 0.25em 0; }
@@ -339,6 +339,7 @@ public final class MdairHTML: NSObject {
       }
       pre { background: #f6f8fa !important; border: 1px solid #e5e7eb; }
       code { background: #eff1f3 !important; }
+      pre code { background: transparent !important; }
       blockquote { background: #f6f8fa !important; border-left-color: #d1d9e0 !important; color: #59636e !important; }
       th { background: #f6f8fa !important; }
       th, td { border-color: #d1d9e0 !important; }

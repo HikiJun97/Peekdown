@@ -22,8 +22,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mdair-preview-dark.png">
-    <img src="docs/assets/mdair-preview.png" alt="Peekdown 미리보기" width="700">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/peekdown-preview-dark.png">
+    <img src="docs/assets/peekdown-preview.png" alt="Peekdown 미리보기" width="700">
   </picture>
 </p>
 
@@ -48,7 +48,7 @@
 ### 창 탭
 
 <p align="center">
-  <img src="docs/assets/mdair-tabs.png" alt="여러 문서를 창 탭으로 연 모습" width="700">
+  <img src="docs/assets/peekdown-tabs.png" alt="여러 문서를 창 탭으로 연 모습" width="700">
 </p>
 
 여러 문서를 한꺼번에 열면 macOS 기본 탭으로 한 창에 모입니다. `⌘⇧[` / `⌘⇧]`로 탭을 옮겨 다니고, **Window** 메뉴에서 *Merge All Windows*나 *Move Tab to New Window*를 쓸 수 있습니다. `⌘W`는 지금 보고 있는 탭만 닫습니다.
@@ -56,13 +56,13 @@
 ### 확대·축소
 
 <p align="center">
-  <img src="docs/assets/mdair-zoom.gif" alt="확대·축소 시연" width="700">
+  <img src="docs/assets/peekdown-zoom.gif" alt="확대·축소 시연" width="700">
 </p>
 
 ### 복사 알림
 
 <p align="center">
-  <img src="images/copy_function.jpg" alt="cmd+C로 텍스트 복사" width="700">
+  <img src="docs/assets/peekdown-copy.png" alt="cmd+C로 텍스트 복사" width="700">
 </p>
 
 ### .mdair와 PDF로 내보내기
