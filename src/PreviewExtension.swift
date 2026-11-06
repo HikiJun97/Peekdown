@@ -26,6 +26,19 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         loadContinuation = nil
     }
 
+    // 링크는 미리보기 안에서 이동하지 않고 브라우저로 연다. 파일 링크로 앱을 실행하지 못하게 웹 주소만 허용한다.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
+            if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") {
+                NSWorkspace.shared.open(url)
+            }
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
     func preparePreviewOfFile(at url: URL) async throws {
         if url.pathExtension.lowercased() == "mdair" {
             try await prepareMdairPreview(at: url)
