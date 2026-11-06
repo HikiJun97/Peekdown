@@ -245,7 +245,19 @@
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL *url = navigationAction.request.URL;
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && url) {
-        [[NSWorkspace sharedWorkspace] openURL:url];
+        // 문서 속 링크로 앱이나 스크립트를 실행하지 못하게, 여는 대상을 제한한다
+        NSString *scheme = url.scheme.lowercaseString;
+        if ([@[@"http", @"https", @"mailto"] containsObject:scheme]) {
+            [[NSWorkspace sharedWorkspace] openURL:url];
+        } else if ([scheme isEqualToString:@"file"]) {
+            NSSet *docExts = [NSSet setWithArray:@[@"md", @"markdown", @"mdown", @"mkd", @"mkdn",
+                                                   @"mdwn", @"mdtxt", @"mdtext", @"mdair"]];
+            if ([docExts containsObject:url.pathExtension.lowercaseString]) {
+                [self openMarkdownFile:url.path];
+            } else {
+                [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[url]];
+            }
+        }
         decisionHandler(WKNavigationActionPolicyCancel);
         return;
     }
