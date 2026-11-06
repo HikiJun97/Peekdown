@@ -389,8 +389,13 @@ func escapeHTML(_ s: String) -> String {
         .replacingOccurrences(of: ">", with: "&gt;")
 }
 
+// 링크 주소와 alt에 쓴 엔티티(&amp; 등)는 CommonMark에서 글자로 풀어 읽으므로 다시 이스케이프하지 않는다.
+// 속성 안의 &quot;는 값의 일부로 풀릴 뿐 속성을 닫지 않으므로 보안에는 영향이 없다.
 func escapeAttribute(_ s: String) -> String {
-    escapeHTML(s).replacingOccurrences(of: "\"", with: "&quot;")
+    s.replacingOccurrences(of: #"&(?!#?[A-Za-z0-9]+;)"#, with: "&amp;", options: .regularExpression)
+        .replacingOccurrences(of: "<", with: "&lt;")
+        .replacingOccurrences(of: ">", with: "&gt;")
+        .replacingOccurrences(of: "\"", with: "&quot;")
 }
 
 // MARK: - Page & Image Inlining
