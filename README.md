@@ -6,6 +6,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
+  <img src="https://img.shields.io/badge/Apple_silicon-only-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Apple silicon only">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
@@ -76,6 +77,8 @@ Open several documents at once and they group into a single window as native mac
 
 ## Installation
 
+Peekdown runs on **Apple silicon Macs (M1 or later) with macOS 13.0+**. Intel Macs are not supported.
+
 There are no prebuilt releases yet. Build from source (below), then copy `build/Peekdown.app` to `/Applications/`.
 
 ### Bypassing Gatekeeper
@@ -101,7 +104,7 @@ Peekdown is not signed with an Apple Developer ID, so macOS may block it the fir
 
 ## Build from Source
 
-Requires Xcode Command Line Tools on macOS 13.0+.
+Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools.
 
 ```bash
 ./scripts/build.sh          # builds build/Peekdown.app
