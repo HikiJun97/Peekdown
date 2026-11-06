@@ -18,6 +18,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$PROJECT_ROOT/AppInfo.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_ROOT/resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$PROJECT_ROOT/resources/mermaid.min.js" "$PROJECT_ROOT/resources/mermaid-LICENSE.txt" "$APP_BUNDLE/Contents/Resources/"
+cp "$PROJECT_ROOT/vendor/cmark-gfm/COPYING" "$APP_BUNDLE/Contents/Resources/cmark-gfm-LICENSE.txt"
 echo -n "APPL????" > "$APP_BUNDLE/Contents/PkgInfo"
 
 # 렌더러(Swift)를 ObjC 앱에서 부를 수 있게 헤더를 만든 뒤, 아키텍처별로 빌드해 합친다
@@ -28,13 +29,18 @@ mkdir -p "$OBJ_DIR"
 CMARK_DIR="$PROJECT_ROOT/vendor/cmark-gfm"
 CMARK_SWIFT_FLAGS=(-I "$CMARK_DIR" -Xcc "-I$CMARK_DIR/src" -Xcc "-I$CMARK_DIR/extensions" -Xcc -DCMARK_GFM_STATIC_DEFINE)
 for ARCH in arm64 x86_64; do
+    # 이전 빌드의 .o가 섞여 들어가지 않게 매번 비운다
+    rm -rf "$OBJ_DIR/cmark-$ARCH"
     mkdir -p "$OBJ_DIR/cmark-$ARCH"
+    PIDS=()
     for SRC in "$CMARK_DIR"/src/*.c "$CMARK_DIR"/extensions/*.c; do
-        clang -arch "$ARCH" -mmacosx-version-min=13.0 -O2 -w -DCMARK_GFM_STATIC_DEFINE \
+        clang -arch "$ARCH" -mmacosx-version-min=13.0 -O2 -w -DNDEBUG -DCMARK_GFM_STATIC_DEFINE \
             -I "$CMARK_DIR/src" -I "$CMARK_DIR/extensions" \
             -c -o "$OBJ_DIR/cmark-$ARCH/$(basename "$SRC" .c).o" "$SRC" &
+        PIDS+=($!)
     done
-    wait
+    # 인자 없는 wait는 실패를 놓치므로 하나씩 기다린다. 하나라도 실패하면 set -e로 멈춘다
+    for PID in "${PIDS[@]}"; do wait "$PID"; done
     libtool -static -no_warning_for_no_symbols -o "$OBJ_DIR/libcmark-gfm-$ARCH.a" "$OBJ_DIR/cmark-$ARCH"/*.o
 done
 swiftc \
@@ -78,6 +84,7 @@ mkdir -p "$EXT_BUNDLE/Contents/MacOS"
 mkdir -p "$EXT_BUNDLE/Contents/Resources"
 # 확장은 샌드박스라 앱 번들을 읽는다고 장담할 수 없어 mermaid를 따로 넣는다
 cp "$PROJECT_ROOT/resources/mermaid.min.js" "$PROJECT_ROOT/resources/mermaid-LICENSE.txt" "$EXT_BUNDLE/Contents/Resources/"
+cp "$PROJECT_ROOT/vendor/cmark-gfm/COPYING" "$EXT_BUNDLE/Contents/Resources/cmark-gfm-LICENSE.txt"
 
 cp "$PROJECT_ROOT/ExtInfo.plist" "$EXT_BUNDLE/Contents/Info.plist"
 
