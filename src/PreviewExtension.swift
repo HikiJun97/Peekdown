@@ -7,6 +7,7 @@ import WebKit
 class PreviewViewController: NSViewController, QLPreviewingController, WKNavigationDelegate {
     var webView: WKWebView!
     private var loadContinuation: CheckedContinuation<Void, Never>?
+    private let navigationGuard = NavigationGuard()
 
     override func loadView() {
         let config = WKWebViewConfiguration()
@@ -31,6 +32,11 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
     // (com.apple.private.launchservices.allowedtolaunchinothersessions 권한 필요).
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // 문서가 <meta refresh>나 폼 제출로 미리보기를 다른 페이지로 옮기지 못하게 한다
+        if navigationGuard.shouldBlock(navigationAction, in: webView) {
+            decisionHandler(.cancel)
+            return
+        }
         // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 허용한다
         let leavesDocument = navigationAction.navigationType == .linkActivated
             && !MdairHTML.isSameDocumentLink(navigationAction.request.url, currentURL: webView.url)
@@ -58,6 +64,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation
+                self.navigationGuard.prepareForLoad(in: self.webView)
                 self.webView.loadHTMLString(html, baseURL: baseDir)
             }
         }
@@ -70,6 +77,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation
+                self.navigationGuard.prepareForLoad(in: self.webView)
                 self.webView.loadHTMLString(html, baseURL: nil)
             }
         }

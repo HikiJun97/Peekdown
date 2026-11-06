@@ -1,5 +1,6 @@
 import Foundation
 import Compression
+import WebKit
 import CMarkGFM
 
 // 앱(Peekdown.app)과 QuickLook 확장이 함께 쓰는 렌더링 코드.
@@ -215,6 +216,33 @@ struct MarkdownRenderer {
     }
 }
 
+// MARK: - Navigation Guard
+
+/// 문서가 스스로 창을 다른 페이지로 옮기지 못하게 막는다(<meta http-equiv="refresh">, 폼 제출 등).
+/// 옮겨 간 페이지에는 우리 CSP가 없어 그 페이지의 스크립트가 그대로 돈다.
+/// 처음 문서를 불러오는 이동만 허용하고, 그 뒤 메인 프레임 이동은 사용자의 링크 클릭과 같은 문서 안 이동만 둔다.
+/// "로드가 끝났는지"가 아니라 "첫 이동인지"로 판단한다. 지연 0초 refresh는 로드가 끝나기 전에 일어날 수 있다.
+@objc(MdairNavigationGuard)
+public final class NavigationGuard: NSObject {
+    private let navigated = NSHashTable<WKWebView>.weakObjects()
+
+    /// 같은 WebView에 새 문서를 불러오기 직전에 부른다.
+    @objc(prepareForLoadInWebView:)
+    public func prepareForLoad(in webView: WKWebView) {
+        navigated.remove(webView)
+    }
+
+    @objc(shouldBlock:inWebView:)
+    public func shouldBlock(_ action: WKNavigationAction, in webView: WKWebView) -> Bool {
+        guard action.targetFrame?.isMainFrame == true,
+              action.navigationType != .linkActivated,
+              !MdairHTML.isSameDocumentLink(action.request.url, currentURL: webView.url) else { return false }
+        if navigated.contains(webView) { return true }
+        navigated.add(webView)
+        return false
+    }
+}
+
 // MARK: - Page & Image Inlining
 
 @objc(MdairHTML)
@@ -337,7 +365,7 @@ public final class MdairHTML: NSObject {
         }
         return """
         <!DOCTYPE html><html><head><meta charset='utf-8'>\
-        <meta http-equiv='Content-Security-Policy' content="script-src 'nonce-\(nonce)'; object-src 'none'; base-uri 'none'">\
+        <meta http-equiv='Content-Security-Policy' content="script-src 'nonce-\(nonce)'; object-src 'none'; base-uri 'none'; form-action 'none'">\
         <style>\(css)</style></head>\
         <body>\(notice)\(body)\
         \(mermaid)\
@@ -444,7 +472,7 @@ public final class MdairHTML: NSObject {
         return result
     }
 
-    // MARK: ObjC 진입점 (mdair.app)
+    // MARK: ObjC 진입점 (Peekdown.app)
 
     /// .md 문서 전체 페이지. baseDir가 있으면 로컬 이미지를 인라인한다.
     @objc(pageForMarkdown:baseDir:)

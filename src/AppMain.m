@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 // 렌더러는 MdairRender.swift에 있다. 빌드할 때 swiftc가 이 헤더를 만든다.
 #import "MdairShared-Swift.h"
@@ -9,6 +10,7 @@
 // ---------------------------------------------------------------------------
 @interface MdairAppDelegate : NSObject <NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate>
 @property (strong) NSMutableArray<NSWindow *> *windows;
+@property (strong) MdairNavigationGuard *navigationGuard;
 - (IBAction)zoomIn:(id)sender;
 - (IBAction)zoomOut:(id)sender;
 - (IBAction)actualSize:(id)sender;
@@ -26,7 +28,10 @@
 
 - (instancetype)init {
     self = [super init];
-    if (self) _windows = [NSMutableArray array];
+    if (self) {
+        _windows = [NSMutableArray array];
+        _navigationGuard = [[MdairNavigationGuard alloc] init];
+    }
     return self;
 }
 
@@ -243,6 +248,11 @@
 }
 
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    // 문서가 <meta refresh>나 폼 제출로 창을 다른 페이지로 옮기지 못하게 한다
+    if ([self.navigationGuard shouldBlock:navigationAction inWebView:webView]) {
+        decisionHandler(WKNavigationActionPolicyCancel);
+        return;
+    }
     NSURL *url = navigationAction.request.URL;
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && url) {
         // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 그대로 둔다
@@ -343,7 +353,7 @@
     NSString *defaultName = [[[srcPath lastPathComponent] stringByDeletingPathExtension]
                              stringByAppendingPathExtension:@"mdair"];
     [panel setNameFieldStringValue:defaultName];
-    [panel setAllowedFileTypes:@[@"mdair"]];
+    [panel setAllowedContentTypes:@[[UTType typeWithFilenameExtension:@"mdair"]]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *dstPath = [[panel URL] path];
 
@@ -415,7 +425,7 @@
 
     NSSavePanel *panel = [NSSavePanel savePanel];
     [panel setNameFieldStringValue:defaultName];
-    [panel setAllowedFileTypes:@[@"pdf"]];
+    [panel setAllowedContentTypes:@[UTTypePDF]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSURL *dstURL = [panel URL];
 

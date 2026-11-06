@@ -54,7 +54,7 @@ struct MdairConverter {
             ?? String(data: markdownData, encoding: .isoLatin1) ?? ""
 
         // Parse image references
-        var imageRefs = parseImageReferences(markdown)
+        let imageRefs = parseImageReferences(markdown)
 
         // Create temp directory for building the archive
         let tempDir = FileManager.default.temporaryDirectory
@@ -103,7 +103,8 @@ struct MdairConverter {
         // Determine output path
         let finalOutput: String
         if let out = outputPath {
-            finalOutput = out
+            // zip은 임시 폴더에서 실행하므로, 상대 경로는 지금 작업 폴더 기준 절대 경로로 바꿔 둔다
+            finalOutput = URL(fileURLWithPath: out).absoluteURL.path
         } else {
             let name = inputURL.deletingPathExtension().lastPathComponent
             finalOutput = baseDir.appendingPathComponent("\(name).mdair").path
