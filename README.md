@@ -22,8 +22,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/mdair-preview-dark.png">
-    <img src="docs/assets/mdair-preview.png" alt="Peekdown preview" width="700">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/peekdown-preview-dark.png">
+    <img src="docs/assets/peekdown-preview.png" alt="Peekdown preview" width="700">
   </picture>
 </p>
 
@@ -48,7 +48,7 @@
 ### Window Tabs
 
 <p align="center">
-  <img src="docs/assets/mdair-tabs.png" alt="Multiple documents open as window tabs" width="700">
+  <img src="docs/assets/peekdown-tabs.png" alt="Multiple documents open as window tabs" width="700">
 </p>
 
 Open several documents at once and they group into a single window as native macOS tabs. Switch with `⌘⇧[` / `⌘⇧]`, and use the **Window** menu to *Merge All Windows* or *Move Tab to New Window*. `⌘W` closes just the active tab.
@@ -56,13 +56,13 @@ Open several documents at once and they group into a single window as native mac
 ### Zoom In / Out
 
 <p align="center">
-  <img src="docs/assets/mdair-zoom.gif" alt="Zoom in/out demo" width="700">
+  <img src="docs/assets/peekdown-zoom.gif" alt="Zoom in/out demo" width="700">
 </p>
 
 ### Copy with Toast Feedback
 
 <p align="center">
-  <img src="images/copy_function.jpg" alt="Copy text with cmd+C" width="700">
+  <img src="docs/assets/peekdown-copy.png" alt="Copy text with cmd+C" width="700">
 </p>
 
 ### Export to .mdair or PDF
