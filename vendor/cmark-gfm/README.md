@@ -6,7 +6,8 @@
 
 Copied as-is from the release tag, except:
 
-- `src/main.c` (command-line tool) and the re2c sources (`*.re`) are omitted.
+- Omitted because the build doesn't use them: `src/main.c` (command-line tool), the re2c sources (`*.re`),
+  and the CMake files (`CMakeLists.txt`, `config.h.in`, `cmark-gfm_version.h.in`, `libcmark-gfm.pc.in`).
 - `src/config.h`, `src/cmark-gfm_version.h` and `src/cmark-gfm_export.h` were generated once with
   `cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMARK_SHARED=OFF -DCMARK_TESTS=OFF` so the build needs no CMake.
 - `module.modulemap` and this README were added for Peekdown.
