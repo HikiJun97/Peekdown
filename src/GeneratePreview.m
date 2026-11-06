@@ -220,15 +220,15 @@ NSString *markdownToHTML(NSString *markdown) {
         NSRegularExpression *r = [NSRegularExpression regularExpressionWithPattern:@"~~(.*?)~~" options:0 error:nil];
         [r replaceMatchesInString:html options:0 range:NSMakeRange(0, html.length) withTemplate:@"<del>$1</del>"];
     }
+    // Images ![alt](url) — 링크보다 먼저 처리해야 [alt](url) 부분을 링크로 바꾸지 않는다
+    {
+        NSRegularExpression *r = [NSRegularExpression regularExpressionWithPattern:@"!\\[([^\\]]*)\\]\\(([^)]+)\\)" options:0 error:nil];
+        [r replaceMatchesInString:html options:0 range:NSMakeRange(0, html.length) withTemplate:@"<img src=\"$2\" alt=\"$1\" style=\"max-width:100%;\">"];
+    }
     // Links [text](url)
     {
         NSRegularExpression *r = [NSRegularExpression regularExpressionWithPattern:@"\\[([^\\]]+)\\]\\(([^)]+)\\)" options:0 error:nil];
         [r replaceMatchesInString:html options:0 range:NSMakeRange(0, html.length) withTemplate:@"<a href=\"$2\">$1</a>"];
-    }
-    // Images ![alt](url)
-    {
-        NSRegularExpression *r = [NSRegularExpression regularExpressionWithPattern:@"!\\[([^\\]]*)\\]\\(([^)]+)\\)" options:0 error:nil];
-        [r replaceMatchesInString:html options:0 range:NSMakeRange(0, html.length) withTemplate:@"<img src=\"$2\" alt=\"$1\" style=\"max-width:100%;\">"];
     }
 
     // Restore mermaid blocks after inline formatting
