@@ -8,15 +8,22 @@ import CMarkGFM
 
 // MARK: - ZIP Reader (Pure Foundation, Sandbox-Safe)
 
-struct ZipEntry {
+/// ZIP의 central directory 항목 하나. 데이터는 extract로 필요할 때만 푼다.
+struct ZipRecord {
     let path: String
-    let data: Data
+    let method: UInt16
+    let uncompressedSize: Int
+    let dataRange: Range<Int>
 }
 
 enum ZipReader {
-    /// 파일 끝의 central directory를 읽어 항목을 푼다. 로컬 헤더에 크기를 0으로 적고 뒤에 데이터 디스크립터를
-    /// 두는 ZIP(Finder 압축, 스트리밍으로 만든 zip)도 읽을 수 있다. ZIP64와 암호화는 지원하지 않는다.
-    static func readEntries(from data: Data) -> [ZipEntry] {
+    /// 항목 하나·전체 합계의 상한. 문서와 이미지에는 넉넉하고, 헤더 크기를 부풀린 ZIP으로 메모리를 다 쓰지 못하게 한다.
+    static let maxEntrySize = 64 << 20
+    static let maxTotalSize = 256 << 20
+
+    /// 파일 끝의 central directory를 읽어 항목 목록을 만든다. 로컬 헤더에 크기를 0으로 적고 뒤에 데이터
+    /// 디스크립터를 두는 ZIP(Finder 압축, 스트리밍으로 만든 zip)도 읽는다. ZIP64와 암호화는 지원하지 않는다.
+    static func records(in data: Data) -> [ZipRecord] {
         // End of central directory: 시그니처 0x06054b50, 최소 22바이트, 그 뒤 주석이 최대 65535바이트
         guard data.count >= 22 else { return [] }
         var eocd = -1
@@ -30,7 +37,8 @@ enum ZipReader {
 
         let count = Int(data.readUInt16(at: eocd + 10))
         var offset = Int(data.readUInt32(at: eocd + 16))
-        var entries: [ZipEntry] = []
+        var records: [ZipRecord] = []
+        var seenLocalHeaders: Set<Int> = []
         for _ in 0..<count {
             guard offset + 46 <= data.count, data.readUInt32(at: offset) == 0x02014b50 else { break }
             let method = data.readUInt16(at: offset + 10)
@@ -49,26 +57,28 @@ enum ZipReader {
             // 폴더 항목과 경로 조작(../)은 건너뛴다
             let components = path.replacingOccurrences(of: "\\", with: "/").split(separator: "/")
             if path.hasSuffix("/") || components.contains("..") { continue }
+            // 여러 항목이 같은 로컬 데이터를 가리키게 해 같은 데이터를 거듭 풀게 하는 ZIP은 받지 않는다
+            guard seenLocalHeaders.insert(localOffset).inserted else { continue }
+            guard uncompressedSize <= maxEntrySize, method == 0 || method == 8 else { continue }
 
             // 로컬 헤더의 이름·extra 길이는 central directory와 다를 수 있어 따로 읽는다
             guard localOffset + 30 <= data.count, data.readUInt32(at: localOffset) == 0x04034b50 else { continue }
             let dataStart = localOffset + 30 + Int(data.readUInt16(at: localOffset + 26)) + Int(data.readUInt16(at: localOffset + 28))
             let dataEnd = dataStart + compressedSize
             guard dataEnd <= data.count else { continue }
-            let raw = data.subdata(in: dataStart..<dataEnd)
-
-            switch method {
-            case 0:  // stored
-                entries.append(ZipEntry(path: path, data: raw))
-            case 8:  // deflate
-                if let inflated = inflate(raw, uncompressedSize: uncompressedSize) {
-                    entries.append(ZipEntry(path: path, data: inflated))
-                }
-            default:
-                continue
-            }
+            records.append(ZipRecord(path: path, method: method, uncompressedSize: uncompressedSize, dataRange: dataStart..<dataEnd))
         }
-        return entries
+        return records
+    }
+
+    /// 항목 하나를 푼다. 실제로 풀리는 양도 선언 크기(이미 상한 이하)를 넘지 못한다.
+    static func extract(_ record: ZipRecord, from data: Data) -> Data? {
+        let raw = data.subdata(in: record.dataRange)
+        switch record.method {
+        case 0: return raw.count <= maxEntrySize ? raw : nil
+        case 8: return inflate(raw, uncompressedSize: record.uncompressedSize)
+        default: return nil
+        }
     }
 
     private static func inflate(_ data: Data, uncompressedSize: Int) -> Data? {
@@ -112,6 +122,7 @@ private extension Data {
 ///   info.json   메타데이터
 ///   text.*      본문(확장자 자유)
 ///   assets/     본문이 assets/… 경로로 가리키는 첨부물
+/// 본문과 첨부물만 읽고, 크기는 ZipReader와 같은 상한(파일당 64MB, 합계 256MB)을 넘지 않는다.
 struct TextBundleReader {
     struct Document {
         let markdown: String
@@ -128,39 +139,53 @@ struct TextBundleReader {
         return try document(from: filesInPack(try Data(contentsOf: url)))
     }
 
-    /// .textbundle 폴더 안의 파일을 번들 기준 상대 경로로 모은다
+    private func isWanted(_ relative: String) -> Bool {
+        isTextFile(relative) || relative.hasPrefix("assets/")
+    }
+
+    /// .textbundle 폴더 안의 본문과 첨부물을 번들 기준 상대 경로로 모은다. 일반 파일만 읽고 심볼릭 링크는 따라가지 않는다.
     private func filesInDirectory(_ dir: URL) throws -> [String: Data] {
         var files: [String: Data] = [:]
+        var total = 0
         let root = dir.standardizedFileURL.path + "/"
-        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) else { return files }
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let walker = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys) else { return files }
         for case let file as URL in walker {
-            guard (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
             let path = file.standardizedFileURL.path
             guard path.hasPrefix(root) else { continue }
             let relative = String(path.dropFirst(root.count))
-            // 본문과 첨부물만 읽는다
-            guard relative.hasPrefix("text.") || relative.hasPrefix("assets/") else { continue }
+            let size = values.fileSize ?? 0
+            guard isWanted(relative), size <= ZipReader.maxEntrySize, total + size <= ZipReader.maxTotalSize else { continue }
             files[relative] = try Data(contentsOf: file)
+            total += size
         }
         return files
     }
 
-    /// .textpack ZIP을 번들 기준 상대 경로로 푼다. 명세가 ZIP 안 구조를 정하지 않아
-    /// 내용물이 바로 들어 있는 경우와 "이름.textbundle/" 폴더째 들어 있는 경우를 모두 받는다.
+    /// .textpack ZIP을 번들 기준 상대 경로로 푼다. 명세가 ZIP 안 구조를 정하지 않아 "이름.textbundle/" 폴더째 든
+    /// 경우와 내용물이 바로 든 경우를 모두 받는다. 둘 다 있으면 Obsidian Importer처럼 폴더 쪽을 쓴다.
     private func filesInPack(_ data: Data) -> [String: Data] {
-        let entries = ZipReader.readEntries(from: data).filter {
+        let records = ZipReader.records(in: data).filter {
             // macOS가 압축할 때 끼워 넣는 리소스 포크 사본은 버린다
             !$0.path.hasPrefix("__MACOSX/") && !($0.path.split(separator: "/").last?.hasPrefix("._") ?? false)
         }
         var prefix = ""
-        if !entries.contains(where: { isTextFile($0.path) }),
-           let nested = entries.first(where: { $0.path.contains(".textbundle/") && isTextFile(String($0.path.split(separator: "/").last ?? "")) }),
-           let range = nested.path.range(of: ".textbundle/") {
+        if let nested = records.first(where: {
+            guard let range = $0.path.range(of: ".textbundle/") else { return false }
+            return isTextFile(String($0.path[range.upperBound...]))
+        }), let range = nested.path.range(of: ".textbundle/") {
             prefix = String(nested.path[..<range.upperBound])
         }
         var files: [String: Data] = [:]
-        for entry in entries where entry.path.hasPrefix(prefix) {
-            files[String(entry.path.dropFirst(prefix.count))] = entry.data
+        var total = 0
+        for record in records where record.path.hasPrefix(prefix) {
+            let relative = String(record.path.dropFirst(prefix.count))
+            // 필요한 항목만, 합계 상한 안에서만 푼다
+            guard isWanted(relative), total + record.uncompressedSize <= ZipReader.maxTotalSize,
+                  let content = ZipReader.extract(record, from: data) else { continue }
+            files[relative] = content
+            total += max(record.uncompressedSize, content.count)
         }
         return files
     }
@@ -187,20 +212,25 @@ struct TextBundleReader {
         return Document(markdown: markdown, assets: assets)
     }
 
-    // 따옴표가 있으면 ![a](assets/x.png "제목") 같은 제목일 수 있어 건드리지 않는다
-    private static let unencodedAssetLink = try! NSRegularExpression(pattern: #"(!\[[^\]\n]*\]\()(assets/[^)\n"']* [^)\n"']*)\)"#)
-
-    /// ![a](assets/a b.png)처럼 공백을 인코딩하지 않고 쓴 첨부물 경로는 CommonMark가 이미지로 보지 않는다.
-    /// 이런 파일을 만드는 앱도 있을 수 있어 공백만 %20으로 바꿔 읽는다.
+    /// ](assets/a b.png) 처럼 공백을 인코딩하지 않고 쓴 첨부물 경로는 CommonMark가 링크로 보지 않는다.
+    /// 이런 파일을 만드는 앱도 있을 수 있어 공백만 %20으로 바꿔 읽는다. 따옴표가 있으면 제목일 수 있어 둔다.
+    /// 정규식은 공백이 많은 줄에서 되돌아가기가 폭발해, 앞에서 한 번만 훑는다(문서 길이에 비례).
     static func encodeAssetSpaces(_ markdown: String) -> String {
-        var result = markdown
-        for match in unencodedAssetLink.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)).reversed() {
-            guard let whole = Range(match.range, in: result),
-                  let head = Range(match.range(at: 1), in: result),
-                  let path = Range(match.range(at: 2), in: result) else { continue }
-            let fixed = result[head] + result[path].replacingOccurrences(of: " ", with: "%20") + ")"
-            result.replaceSubrange(whole, with: fixed)
+        var result = ""
+        var cursor = markdown.startIndex
+        while let open = markdown.range(of: "](assets/", range: cursor..<markdown.endIndex) {
+            let pathStart = markdown.index(open.lowerBound, offsetBy: 2)
+            let end = markdown[pathStart...].firstIndex(where: { $0 == ")" || $0 == "\n" }) ?? markdown.endIndex
+            let path = markdown[pathStart..<end]
+            result += markdown[cursor..<pathStart]
+            if end < markdown.endIndex, markdown[end] == ")", !path.contains("\""), !path.contains("'") {
+                result += path.replacingOccurrences(of: " ", with: "%20")
+            } else {
+                result += path
+            }
+            cursor = end
         }
+        result += markdown[cursor...]
         return result
     }
 }
@@ -386,6 +416,7 @@ public final class MdairHTML: NSObject {
 
     /// 문서 본문은 HTML을 그대로 통과시키므로, CSP로 우리가 넣은 스크립트(nonce가 맞는 것)만 실행한다.
     /// 본문에 끼워 넣은 <script>, onerror= 같은 인라인 핸들러, javascript: URL은 막힌다.
+    /// 원격 리소스는 이미지만 허용한다. 원격 스타일시트는 CSS 선택자로 페이지 내용을 밖으로 빼낼 수 있어 막는다.
     static func page(body: String, notice: String = "") -> String {
         let nonce = UUID().uuidString
         var mermaid = ""
@@ -395,7 +426,7 @@ public final class MdairHTML: NSObject {
         }
         return """
         <!DOCTYPE html><html><head><meta charset='utf-8'>\
-        <meta http-equiv='Content-Security-Policy' content="script-src 'nonce-\(nonce)'; object-src 'none'; base-uri 'none'; form-action 'none'">\
+        <meta http-equiv='Content-Security-Policy' content="default-src 'none'; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'; img-src data: file: http: https:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'">\
         <style>\(css)</style></head>\
         <body>\(notice)\(body)\
         \(mermaid)\
@@ -449,14 +480,46 @@ public final class MdairHTML: NSObject {
         return s.removingPercentEncoding ?? s
     }
 
+    /// 페이지에 data URI로 넣는 이미지의 합계 상한. 같은 이미지를 수백 번 참조해 페이지를 부풀리지 못하게 한다.
+    static let maxInlineBytes = 64 << 20
+
+    /// 파일 앞부분이 확장자에 맞는 실제 이미지 형식인지 본다. TextBundleConverter.swift의 같은 검사와 맞춘다.
+    static func isImageData(_ data: Data, ext: String) -> Bool {
+        let b = [UInt8](data.prefix(12))
+        func starts(_ sig: [UInt8]) -> Bool { b.count >= sig.count && Array(b.prefix(sig.count)) == sig }
+        switch ext {
+        case "png": return starts([0x89, 0x50, 0x4E, 0x47])
+        case "jpg", "jpeg": return starts([0xFF, 0xD8, 0xFF])
+        case "gif": return starts(Array("GIF8".utf8))
+        case "webp": return starts(Array("RIFF".utf8)) && b.count >= 12 && Array(b[8..<12]) == Array("WEBP".utf8)
+        case "tif", "tiff": return starts([0x49, 0x49, 0x2A, 0x00]) || starts([0x4D, 0x4D, 0x00, 0x2A])
+        case "svg": return String(decoding: data.prefix(4096), as: UTF8.self).lowercased().contains("<svg")
+        default: return false
+        }
+    }
+
+    /// 로컬 이미지를 읽는다. 심볼릭 링크를 따라간 실제 대상이 일반 파일이고, 이미지 확장자이고, 내용도 이미지일 때만.
+    /// 이미지인 척하는 링크나 이름으로 다른 파일을 페이지에 싣지 못하게 한다.
+    static func readLocalImage(_ url: URL) -> (data: Data, ext: String)? {
+        let real = url.resolvingSymlinksInPath()
+        let ext = real.pathExtension.lowercased()
+        guard imageExtensions.contains(ext),
+              let values = try? real.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true, (values.fileSize ?? 0) <= ZipReader.maxEntrySize,
+              let data = try? Data(contentsOf: real), isImageData(data, ext: ext) else { return nil }
+        return (data, ext)
+    }
+
     /// <img src="로컬경로">를 baseDir 기준으로 읽어 data URI로 바꾼다. 못 읽은 개수도 돌려준다.
-    /// 문서가 아무 파일이나 페이지에 싣지 못하도록 <img>의 이미지 확장자 파일만 읽는다.
+    /// 실제 이미지 파일만 읽고(readLocalImage), 같은 파일은 한 번만 인코딩하며, 합계는 maxInlineBytes까지만 넣는다.
     static func inlineLocalImages(_ html: String, baseDir: URL) -> (html: String, missingCount: Int) {
         guard let regex = try? NSRegularExpression(
             pattern: #"(<img\b[^>]*?\ssrc=\")([^\"]+)\""#, options: [.caseInsensitive]
         ) else { return (html, 0) }
         var result = html
         var missingCount = 0
+        var cache: [String: String] = [:]
+        var budget = maxInlineBytes
         let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
         for match in matches.reversed() {
             guard let attrRange = Range(match.range(at: 1), in: html),
@@ -466,11 +529,22 @@ public final class MdairHTML: NSObject {
             if path.hasPrefix("http://") || path.hasPrefix("https://") || path.hasPrefix("data:") { continue }
             let fileURL = path.hasPrefix("/") ? URL(fileURLWithPath: path) : baseDir.appendingPathComponent(path)
             guard imageExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
-            guard let imgData = try? Data(contentsOf: fileURL) else {
+            let dataURI: String
+            if let cached = cache[fileURL.path] {
+                dataURI = cached
+            } else {
+                guard let image = readLocalImage(fileURL) else {
+                    missingCount += 1
+                    continue
+                }
+                dataURI = "data:\(mimeType(forExtension: image.ext));base64,\(image.data.base64EncodedString())"
+                cache[fileURL.path] = dataURI
+            }
+            guard dataURI.utf8.count <= budget else {
                 missingCount += 1
                 continue
             }
-            let dataURI = "data:\(mimeType(forExtension: fileURL.pathExtension));base64,\(imgData.base64EncodedString())"
+            budget -= dataURI.utf8.count
             guard let swiftRange = Range(match.range(at: 0), in: result) else { continue }
             result.replaceSubrange(swiftRange, with: "\(attr)\(dataURI)\"")
         }
@@ -478,11 +552,15 @@ public final class MdairHTML: NSObject {
     }
 
     /// TextBundle 안의 assets/ 이미지를 data URI로 바꾼다. 없는 이미지는 "Image not found" 그림으로 채운다.
+    /// 같은 첨부물은 한 번만 인코딩하고, 합계는 maxInlineBytes까지만 넣는다.
     static func inlineAssets(_ html: String, assets: [String: Data]) -> String {
         guard let regex = try? NSRegularExpression(
             pattern: #"(src|srcset)=\"assets/([^\"]+)\""#, options: []
         ) else { return html }
+        let notFound = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iNTAiPjx0ZXh0IHg9IjEwIiB5PSIzMCIgZmlsbD0iIzk5OSI+SW1hZ2Ugbm90IGZvdW5kPC90ZXh0Pjwvc3ZnPg=="
         var result = html
+        var cache: [String: String] = [:]
+        var budget = maxInlineBytes
         let matches = regex.matches(in: html, options: [], range: NSRange(html.startIndex..., in: html))
         for match in matches.reversed() {
             guard let attrRange = Range(match.range(at: 1), in: result),
@@ -492,11 +570,15 @@ public final class MdairHTML: NSObject {
             let encoded = String(result[filenameRange])
             let filename = decodeImagePath(encoded)
 
-            guard let imgData = assets[filename] ?? assets[encoded] else {
-                result.replaceSubrange(swiftRange, with: "\(attr)=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iNTAiPjx0ZXh0IHg9IjEwIiB5PSIzMCIgZmlsbD0iIzk5OSI+SW1hZ2Ugbm90IGZvdW5kPC90ZXh0Pjwvc3ZnPg==\"")
-                continue
+            var dataURI = notFound
+            if let cached = cache[filename] {
+                dataURI = cached
+            } else if let imgData = assets[filename] ?? assets[encoded] {
+                dataURI = "data:\(mimeType(forExtension: (filename as NSString).pathExtension));base64,\(imgData.base64EncodedString())"
+                cache[filename] = dataURI
             }
-            let dataURI = "data:\(mimeType(forExtension: (filename as NSString).pathExtension));base64,\(imgData.base64EncodedString())"
+            if dataURI.utf8.count > budget { dataURI = notFound }
+            budget -= min(budget, dataURI.utf8.count)
             result.replaceSubrange(swiftRange, with: "\(attr)=\"\(dataURI)\"")
         }
         return result
