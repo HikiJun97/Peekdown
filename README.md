@@ -42,7 +42,8 @@
 | **Safe by Default** | Scripts embedded in documents never run, and documents can't pull arbitrary local files into the page |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
 | **Copy** | Select text and `⌘C` to copy — a toast confirms the action |
-| **Export** | Export to `.mdair` or PDF from the File menu |
+| **TextBundle** | Open `.textbundle` and `.textpack` documents with their images, in the app and in QuickLook |
+| **Export** | Export to TextPack or PDF from the File menu |
 | **No Runtime Dependencies** | Pure native macOS — no Electron, no Node.js |
 
 ### Window Tabs
@@ -65,9 +66,9 @@ Open several documents at once and they group into a single window as native mac
   <img src="docs/assets/peekdown-copy.png" alt="Copy text with cmd+C" width="700">
 </p>
 
-### Export to .mdair or PDF
+### Export to TextPack or PDF
 
-**File** → **Export as .mdair…** bundles the current document and its images into a single `.mdair` archive. The format comes from mdair, so archives made by either app open in both.
+**File** → **Export as TextPack…** bundles the current document and its images into a single `.textpack` file. [TextBundle](http://textbundle.org) is an open format shared by Markdown apps such as Bear and Ulysses; a TextPack is a zipped TextBundle, and Peekdown writes the `.textbundle` folder inside the ZIP.
 
 **File** → **Export as PDF…** renders the current view as an A4 PDF.
 
@@ -118,7 +119,7 @@ Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools.
 
 1. **Peekdown.app** — the viewer window, written in Objective-C (Cocoa + WebKit)
 2. **QLMarkdownPreview.appex** — the QuickLook Preview Extension bundled inside the app
-3. **peekdown-convert** — a command-line tool that packs a document and its images into `.mdair`
+3. **peekdown-convert** — a command-line tool that packs a document and its images into a `.textpack` (or a `.textbundle` folder with `-o name.textbundle`)
 
 Markdown is parsed by [cmark-gfm](https://github.com/github/cmark-gfm), GitHub's own CommonMark implementation, vendored as C source under `vendor/` and compiled by `build.sh`. The rendering code is one Swift file shared by the app and the extension. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
 
@@ -126,7 +127,7 @@ QuickLook extensions run in a strict macOS sandbox: they can't read files next t
 
 ## Supported Formats
 
-`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.mdair`
+`.md` `.markdown` `.mdown` `.mkd` `.mkdn` `.mdwn` `.mdtxt` `.mdtext` `.textbundle` `.textpack`
 
 ## License
 

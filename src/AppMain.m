@@ -18,7 +18,7 @@
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument;
 - (void)presentDocumentWindow:(NSWindow *)window isDocument:(BOOL)isDocument;
 - (void)syncTabTitleForWindow:(NSWindow *)window;
-- (IBAction)exportAsMdair:(id)sender;
+- (IBAction)exportAsTextPack:(id)sender;
 - (IBAction)exportAsPDF:(id)sender;
 - (IBAction)printDocument:(id)sender;
 + (NSPrintInfo *)a4PrintInfo;
@@ -40,7 +40,7 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (self.windows.count == 0) {
-            [self openMarkdownString:@"# Peekdown\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md` or `.mdair` file onto this app or use **Open With** in Finder."
+            [self openMarkdownString:@"# Peekdown\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md`, `.textbundle` or `.textpack` file onto this app or use **Open With** in Finder."
                            withTitle:@"Peekdown"];
         }
     });
@@ -76,8 +76,9 @@
 
 - (void)openMarkdownFile:(NSString *)path {
     [self dismissWelcomeWindowIfPresent];
-    if ([[path pathExtension] caseInsensitiveCompare:@"mdair"] == NSOrderedSame) {
-        [self openMdairFile:path];
+    NSString *ext = path.pathExtension.lowercaseString;
+    if ([ext isEqualToString:@"textbundle"] || [ext isEqualToString:@"textpack"]) {
+        [self openTextBundle:path];
         return;
     }
 
@@ -104,10 +105,10 @@
     [self syncTabTitleForWindow:createdWindow];
 }
 
-- (void)openMdairFile:(NSString *)path {
-    NSString *html = [MdairHTML pageForMdairFile:path];
+- (void)openTextBundle:(NSString *)path {
+    NSString *html = [MdairHTML pageForTextBundle:path];
     if (!html) {
-        NSLog(@"Failed to read .mdair file: %@", path);
+        NSLog(@"Failed to read TextBundle: %@", path);
         return;
     }
 
@@ -236,7 +237,7 @@
 // The document filename (representedURL.lastPathComponent) is the single source
 // of truth: when a representedURL is present the title is forced to match it,
 // so the tab label always reflects the document — regardless of which creation
-// path (.md sets representedURL after present; .mdair sets it before) ran.
+// path (.md sets representedURL after present; TextBundle sets it before) ran.
 // Windows without a representedURL (e.g. the welcome window) keep their title.
 - (void)syncTabTitleForWindow:(NSWindow *)window {
     if (!window) return;
@@ -266,7 +267,7 @@
             [[NSWorkspace sharedWorkspace] openURL:url];
         } else if ([scheme isEqualToString:@"file"]) {
             NSSet *docExts = [NSSet setWithArray:@[@"md", @"markdown", @"mdown", @"mkd", @"mkdn",
-                                                   @"mdwn", @"mdtxt", @"mdtext", @"mdair"]];
+                                                   @"mdwn", @"mdtxt", @"mdtext", @"textbundle", @"textpack"]];
             if ([docExts containsObject:url.pathExtension.lowercaseString]) {
                 [self openMarkdownFile:url.path];
             } else {
@@ -323,7 +324,7 @@
     }
 }
 
-- (IBAction)exportAsMdair:(id)sender {
+- (IBAction)exportAsTextPack:(id)sender {
     NSWindow *window = [NSApp keyWindow];
     NSURL *src = [window representedURL];
     if (!src) {
@@ -335,9 +336,9 @@
     }
     NSString *srcPath = [src path];
     NSString *ext = [[srcPath pathExtension] lowercaseString];
-    if ([ext isEqualToString:@"mdair"]) {
+    if ([ext isEqualToString:@"textbundle"] || [ext isEqualToString:@"textpack"]) {
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"이미 .mdair 파일입니다";
+        alert.messageText = @"이미 TextBundle 문서입니다";
         [alert runModal];
         return;
     }
@@ -351,9 +352,9 @@
 
     NSSavePanel *panel = [NSSavePanel savePanel];
     NSString *defaultName = [[[srcPath lastPathComponent] stringByDeletingPathExtension]
-                             stringByAppendingPathExtension:@"mdair"];
+                             stringByAppendingPathExtension:@"textpack"];
     [panel setNameFieldStringValue:defaultName];
-    [panel setAllowedContentTypes:@[[UTType typeWithFilenameExtension:@"mdair"]]];
+    [panel setAllowedContentTypes:@[[UTType typeWithFilenameExtension:@"textpack"]]];
     if ([panel runModal] != NSModalResponseOK) return;
     NSString *dstPath = [[panel URL] path];
 
@@ -534,7 +535,7 @@ int main(int argc, const char *argv[]) {
         NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
         [fileMenu addItemWithTitle:@"Close" action:@selector(performClose:) keyEquivalent:@"w"];
         [fileMenu addItem:[NSMenuItem separatorItem]];
-        [fileMenu addItemWithTitle:@"Export as .mdair…" action:@selector(exportAsMdair:) keyEquivalent:@""];
+        [fileMenu addItemWithTitle:@"Export as TextPack…" action:@selector(exportAsTextPack:) keyEquivalent:@""];
         [fileMenu addItemWithTitle:@"Export as PDF…" action:@selector(exportAsPDF:) keyEquivalent:@""];
         [fileMenu addItem:[NSMenuItem separatorItem]];
         [fileMenu addItemWithTitle:@"Print…" action:@selector(printDocument:) keyEquivalent:@"p"];
