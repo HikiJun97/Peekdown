@@ -36,6 +36,7 @@
 | **Standalone Viewer** | Double-click or drag `.md` files to open in a dedicated window |
 | **Window Tabs** | Open multiple documents as native macOS tabs in a single window |
 | **Dark Mode** | Automatic light/dark theme matching your system preference |
+| **Standard Markdown** | CommonMark + GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks) via [cmark-gfm](https://github.com/github/cmark-gfm) |
 | **Mermaid Diagrams** | Rendered offline, in QuickLook as well as in the app |
 | **Safe by Default** | Scripts embedded in documents never run, and documents can't pull arbitrary local files into the page |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
@@ -71,7 +72,6 @@ Open several documents at once and they group into a single window as native mac
 
 ## Roadmap
 
-- **Standard Markdown** — replace the regex-based renderer with [cmark-gfm](https://github.com/github/cmark-gfm) for full CommonMark + GitHub Flavored Markdown support
 - **In-place editing** — edit directly on the rendered document, Notion-style, instead of a separate editor pane
 
 ## Installation
@@ -117,7 +117,7 @@ Requires Xcode Command Line Tools on macOS 13.0+.
 2. **QLMarkdownPreview.appex** — the QuickLook Preview Extension bundled inside the app
 3. **peekdown-convert** — a command-line tool that packs a document and its images into `.mdair`
 
-Rendering lives in one Swift file shared by the app and the extension. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
+Markdown is parsed by [cmark-gfm](https://github.com/github/cmark-gfm), GitHub's own CommonMark implementation, vendored as C source under `vendor/` and compiled by `build.sh`. The rendering code is one Swift file shared by the app and the extension. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
 
 QuickLook extensions run in a strict macOS sandbox: they can't read files next to the document (local images show a notice instead), can't reach the network, and can't open links in a browser. Open the document in Peekdown for those.
 
@@ -130,3 +130,5 @@ QuickLook extensions run in a strict macOS sandbox: they can't read files next t
 [MIT](LICENSE). Copyright &copy; 2026 tykimos (original mdair), &copy; 2026 HikiJun97 (Peekdown).
 
 Bundles [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2 (MIT) so diagrams render offline and in QuickLook. See [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt).
+
+Bundles [cmark-gfm](https://github.com/github/cmark-gfm) 0.29.0.gfm.13 (BSD-2-Clause and others). See [`vendor/cmark-gfm/COPYING`](vendor/cmark-gfm/COPYING).
