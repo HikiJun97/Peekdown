@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
   <img src="https://img.shields.io/badge/Apple_silicon-only-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Apple silicon only">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
 </p>
@@ -37,7 +38,7 @@
 | **독립 뷰어** | `.md` 파일을 더블클릭하거나 끌어다 놓으면 전용 창에서 열립니다 |
 | **창 탭** | 여러 문서를 macOS 기본 탭으로 한 창에 모아 엽니다 |
 | **다크 모드** | 시스템 설정에 맞춰 밝은 테마와 어두운 테마가 바뀝니다 |
-| **표준 마크다운** | [cmark-gfm](https://github.com/github/cmark-gfm)으로 CommonMark와 GitHub Flavored Markdown(표, 체크리스트, 취소선, 자동 링크, 각주)을 지원합니다 |
+| **표준 마크다운** | [comrak](https://github.com/kivikakk/comrak)으로 CommonMark와 GitHub Flavored Markdown(표, 체크리스트, 취소선, 자동 링크, 각주)을 지원합니다 |
 | **Mermaid 다이어그램** | 오프라인에서도, QuickLook에서도 그려집니다 |
 | **안전한 기본값** | 문서에 넣은 스크립트는 실행되지 않고, 문서가 아무 로컬 파일이나 페이지에 싣지 못합니다 |
 | **확대·축소** | `⌘+`/`⌘-` 또는 트랙패드 핀치로 확대하고 축소합니다 |
@@ -74,7 +75,7 @@
 
 ## 로드맵
 
-- **여러 운영체제 지원** — 공통 로직을 Rust로 옮기고(마크다운은 [comrak](https://github.com/kivikakk/comrak), `core/`), 앱은 [Tauri](https://tauri.app)로 바꿉니다. macOS의 QuickLook 확장은 그대로 둡니다
+- **여러 운영체제 지원** — 공통 로직은 이미 Rust(`core/`)로 옮겼습니다. 다음으로 앱을 [Tauri](https://tauri.app)로 바꿉니다. macOS의 QuickLook 확장은 그대로 둡니다
 - **화면에서 바로 편집** — 편집 창을 따로 두지 않고, Notion처럼 렌더링된 문서에서 바로 고칩니다
 
 ## 설치
@@ -106,7 +107,7 @@ Peekdown은 Apple Developer ID로 서명하지 않아서 처음 열 때 macOS가
 
 ## 소스에서 빌드
 
-macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합니다. 테스트는 `core/`의 Rust 코드도 빌드하므로 [Rust](https://rustup.rs) 1.89 이상이 있어야 합니다.
+macOS 13.0 이상의 Apple silicon Mac, Xcode Command Line Tools, [Rust](https://rustup.rs) 1.89 이상이 필요합니다.
 
 ```bash
 ./scripts/build.sh          # build/Peekdown.app 생성
@@ -123,7 +124,9 @@ tests/run.sh                # 빌드하고 전체 테스트 실행 (tests/README
 2. **QLMarkdownPreview.appex** — 앱 안에 들어 있는 QuickLook 미리보기 확장
 3. **peekdown-convert** — 문서와 이미지를 `.textpack`으로 묶는 명령줄 도구(`-o 이름.textbundle`이면 폴더로 저장)
 
-마크다운 해석은 GitHub이 쓰는 CommonMark 구현체인 [cmark-gfm](https://github.com/github/cmark-gfm)이 맡습니다. C 소스를 `vendor/`에 넣어 두고 `build.sh`가 함께 컴파일합니다. 렌더링 코드는 Swift 파일 하나에 있고, 앱과 확장이 함께 씁니다. 화면 스타일은 CSS `prefers-color-scheme`로 macOS의 밝은 모드와 어두운 모드를 따라갑니다.
+렌더링, TextBundle 읽기, 내보내기는 `core/`의 Rust 라이브러리에 있습니다. 마크다운 해석은 CommonMark 0.31.2와 GFM을 따르는 [comrak](https://github.com/kivikakk/comrak)이 맡습니다. 앱과 확장은 이 라이브러리를 링크해 작은 C 인터페이스(`core/include/peekdown.h`)로 부르고, `peekdown-convert`도 같은 라이브러리로 만듭니다. 화면 스타일은 CSS `prefers-color-scheme`로 macOS의 밝은 모드와 어두운 모드를 따라갑니다.
+
+마크다운 문법(`![설명](경로)`)으로 넣은 로컬 이미지는 페이지에 담아 보여 줍니다. 로컬 경로를 가리키는 raw HTML `<img>` 태그는 지금은 불러오지 않고, 앱을 Tauri로 옮기면 다시 보이게 됩니다.
 
 QuickLook 확장은 macOS의 엄격한 샌드박스 안에서 돕니다. 문서 옆 파일을 읽지 못해 로컬 이미지 대신 안내 문구가 나오고, 네트워크에 접속하지 못하며, 링크를 브라우저로 열 수 없습니다. 이런 기능은 Peekdown 앱으로 열어서 쓰세요.
 
@@ -137,4 +140,4 @@ QuickLook 확장은 macOS의 엄격한 샌드박스 안에서 돕니다. 문서 
 
 오프라인과 QuickLook에서도 다이어그램이 그려지도록 [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2(MIT)를 함께 배포합니다. 라이선스 전문은 [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt)에 있습니다.
 
-[cmark-gfm](https://github.com/github/cmark-gfm) 0.29.0.gfm.13(BSD-2-Clause 외)을 함께 배포합니다. 라이선스 전문은 [`vendor/cmark-gfm/COPYING`](vendor/cmark-gfm/COPYING)에 있습니다.
+[comrak](https://github.com/kivikakk/comrak) 0.59(BSD-2-Clause)를 비롯한 Rust 크레이트를 함께 배포합니다. 라이선스 전문은 [`resources/THIRD-PARTY-NOTICES.txt`](resources/THIRD-PARTY-NOTICES.txt)에 모아 두었습니다(`scripts/third-party-notices.py`로 다시 만듭니다).

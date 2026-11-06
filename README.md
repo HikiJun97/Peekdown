@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/macOS-13.0+-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 13.0+">
   <img src="https://img.shields.io/badge/Apple_silicon-only-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Apple silicon only">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white" alt="Rust">
   <img src="https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/Objective--C-blue?style=for-the-badge" alt="Objective-C">
 </p>
@@ -37,7 +38,7 @@
 | **Standalone Viewer** | Double-click or drag `.md` files to open in a dedicated window |
 | **Window Tabs** | Open multiple documents as native macOS tabs in a single window |
 | **Dark Mode** | Automatic light/dark theme matching your system preference |
-| **Standard Markdown** | CommonMark + GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes) via [cmark-gfm](https://github.com/github/cmark-gfm) |
+| **Standard Markdown** | CommonMark + GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes) via [comrak](https://github.com/kivikakk/comrak) |
 | **Mermaid Diagrams** | Rendered offline, in QuickLook as well as in the app |
 | **Safe by Default** | Scripts embedded in documents never run, and documents can't pull arbitrary local files into the page |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
@@ -74,7 +75,7 @@ Open several documents at once and they group into a single window as native mac
 
 ## Roadmap
 
-- **Cross-platform** — move the shared logic to Rust ([comrak](https://github.com/kivikakk/comrak) for Markdown, in `core/`) and the app to [Tauri](https://tauri.app), keeping the QuickLook extension on macOS
+- **Cross-platform** — the shared logic already lives in Rust (`core/`); next, move the app to [Tauri](https://tauri.app), keeping the QuickLook extension on macOS
 - **In-place editing** — edit directly on the rendered document, Notion-style, instead of a separate editor pane
 
 ## Installation
@@ -106,7 +107,7 @@ Peekdown is not signed with an Apple Developer ID, so macOS may block it the fir
 
 ## Build from Source
 
-Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools. The tests also build the Rust core in `core/`, which needs [Rust](https://rustup.rs) 1.89+.
+Requires an Apple silicon Mac with macOS 13.0+, Xcode Command Line Tools and [Rust](https://rustup.rs) 1.89+.
 
 ```bash
 ./scripts/build.sh          # builds build/Peekdown.app
@@ -123,7 +124,9 @@ tests/run.sh                # builds and runs all tests (see tests/README.md)
 2. **QLMarkdownPreview.appex** — the QuickLook Preview Extension bundled inside the app
 3. **peekdown-convert** — a command-line tool that packs a document and its images into a `.textpack` (or a `.textbundle` folder with `-o name.textbundle`)
 
-Markdown is parsed by [cmark-gfm](https://github.com/github/cmark-gfm), GitHub's own CommonMark implementation, vendored as C source under `vendor/` and compiled by `build.sh`. The rendering code is one Swift file shared by the app and the extension. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
+Rendering, TextBundle reading and export live in a Rust library under `core/`. Markdown is parsed by [comrak](https://github.com/kivikakk/comrak), a CommonMark 0.31.2 + GFM implementation. The app and the extension link the library and call it through a small C interface (`core/include/peekdown.h`); `peekdown-convert` is built from the same library. Styling follows macOS light/dark mode via CSS `prefers-color-scheme`.
+
+Local images written as Markdown (`![alt](path)`) are embedded into the page. Raw HTML `<img>` tags with local paths are left alone for now; they'll load again once the app moves to Tauri.
 
 QuickLook extensions run in a strict macOS sandbox: they can't read files next to the document (local images show a notice instead), can't reach the network, and can't open links in a browser. Open the document in Peekdown for those.
 
@@ -137,4 +140,4 @@ QuickLook extensions run in a strict macOS sandbox: they can't read files next t
 
 Bundles [Mermaid](https://github.com/mermaid-js/mermaid) 11.17.2 (MIT) so diagrams render offline and in QuickLook. See [`resources/mermaid-LICENSE.txt`](resources/mermaid-LICENSE.txt).
 
-Bundles [cmark-gfm](https://github.com/github/cmark-gfm) 0.29.0.gfm.13 (BSD-2-Clause and others). See [`vendor/cmark-gfm/COPYING`](vendor/cmark-gfm/COPYING).
+Includes [comrak](https://github.com/kivikakk/comrak) 0.59 (BSD-2-Clause) and other Rust crates. Their licenses are collected in [`resources/THIRD-PARTY-NOTICES.txt`](resources/THIRD-PARTY-NOTICES.txt) (regenerate with `scripts/third-party-notices.py`).

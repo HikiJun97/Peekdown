@@ -9,6 +9,8 @@ description = "Peekdown의 렌더링·TextBundle·내보내기 로직. 앱, Quic
 
 [lib]
 name = "peekdown_core"
+# staticlib: macOS 앱과 QuickLook 확장이 C 함수(include/peekdown.h)로 링크한다
+crate-type = ["rlib", "staticlib"]
 
 [[bin]]
 name = "peekdown-convert"
