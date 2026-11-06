@@ -137,12 +137,13 @@ struct MdairParser {
             markdownData = firstMd.data
         }
 
-        let markdown: String
+        var markdown: String
         if let md = markdownData {
             markdown = String(data: md, encoding: .utf8) ?? String(data: md, encoding: .isoLatin1) ?? ""
         } else {
             markdown = ""
         }
+        markdown = Self.encodeLegacyAssetSpaces(markdown)
 
         // Collect assets
         var assets: [String: Data] = [:]
@@ -155,6 +156,23 @@ struct MdairParser {
 
         return MdairDocument(markdown: markdown, assets: assets)
     }
+
+    // 따옴표가 있으면 ![a](assets/x.png "제목") 같은 제목일 수 있어 건드리지 않는다
+    private static let legacyAssetLink = try! NSRegularExpression(pattern: #"(!\[[^\]\n]*\]\()(assets/[^)\n"']* [^)\n"']*)\)"#)
+
+    /// mdair와 이전 변환기는 ![a](assets/a b.png)처럼 공백을 인코딩하지 않고 썼다.
+    /// CommonMark는 공백이 든 주소를 이미지로 보지 않으므로 공백만 %20으로 바꿔 예전 파일도 열리게 한다.
+    static func encodeLegacyAssetSpaces(_ markdown: String) -> String {
+        var result = markdown
+        for match in legacyAssetLink.matches(in: markdown, range: NSRange(markdown.startIndex..., in: markdown)).reversed() {
+            guard let whole = Range(match.range, in: result),
+                  let head = Range(match.range(at: 1), in: result),
+                  let path = Range(match.range(at: 2), in: result) else { continue }
+            let fixed = result[head] + result[path].replacingOccurrences(of: " ", with: "%20") + ")"
+            result.replaceSubrange(whole, with: fixed)
+        }
+        return result
+    }
 }
 
 // MARK: - Markdown Renderer
@@ -164,7 +182,8 @@ struct MarkdownRenderer {
     private static let extensions = ["table", "strikethrough", "autolink", "tagfilter", "tasklist"]
     // HTML은 지금처럼 통과시킨다. 문서 속 스크립트는 페이지의 CSP가 막고,
     // <script>·<style>·<iframe> 같은 위험한 태그는 tagfilter 확장이 무력화한다.
-    private static let options = CMARK_OPT_UNSAFE
+    // 각주([^1])는 GitHub처럼 지원한다. 정의가 있는 [^이름]만 각주가 되므로 [^a-z] 같은 일반 글은 그대로다.
+    private static let options = CMARK_OPT_UNSAFE | CMARK_OPT_FOOTNOTES
     private static let registered: Void = cmark_gfm_core_extensions_ensure_registered()
 
     func render(_ markdown: String) -> String {
@@ -243,6 +262,10 @@ public final class MdairHTML: NSObject {
       z-index: 99999;
     }
     #mdair-toast.show { opacity: 1; transform: translateY(0); }
+    sup.footnote-ref { font-size: 0.75em; }
+    .footnotes { margin-top: 2em; padding-top: 1em; border-top: 1px solid; font-size: 0.85em; }
+    .footnotes ol { padding-left: 1.5em; }
+    .footnotes p { margin: 0.3em 0; }
     @media (prefers-color-scheme: light) {
       body { color: #24292f; background: #fff; }
       h1, h2 { border-bottom-color: #d1d9e0; }
@@ -252,6 +275,7 @@ public final class MdairHTML: NSObject {
       hr { background: #d1d9e0; } a { color: #0969da; }
       .mdair-notice { background: #fff8e1; color: #6b4f00; }
       .mdair-notice code { background: rgba(0,0,0,0.06); }
+      .footnotes { border-top-color: #d1d9e0; color: #59636e; }
     }
     @media (prefers-color-scheme: dark) {
       body { color: #e6edf3; background: #0d1117; }
@@ -262,6 +286,7 @@ public final class MdairHTML: NSObject {
       hr { background: #30363d; } a { color: #58a6ff; }
       .mdair-notice { background: #2a2410; color: #e0c97a; }
       .mdair-notice code { background: rgba(255,255,255,0.08); }
+      .footnotes { border-top-color: #30363d; color: #8b949e; }
     }
     /* Print / PDF export — A4 paper with proper margins, readable colors, no awkward breaks */
     @page { size: A4; margin: 18mm 16mm; }
@@ -321,6 +346,16 @@ public final class MdairHTML: NSObject {
         """
     }
 
+    /// 각주(#fn-1)처럼 지금 문서 안의 다른 위치로 옮겨 가는 링크인지 판단한다. 이런 이동은 막지 않는다.
+    @objc(isSameDocumentLink:currentURL:)
+    public static func isSameDocumentLink(_ url: URL?, currentURL: URL?) -> Bool {
+        // WebKit이 주는 about:blank#fn-1 은 URL.fragment가 nil이라 문자열로 # 앞부분을 비교한다(.mdair는 about:blank에서 열린다)
+        guard let target = url?.absoluteString, let current = currentURL?.absoluteString,
+              let hash = target.firstIndex(of: "#") else { return false }
+        let currentBase = current.firstIndex(of: "#").map { String(current[..<$0]) } ?? current
+        return String(target[..<hash]) == currentBase
+    }
+
     static func mimeType(forExtension ext: String) -> String {
         switch ext.lowercased() {
         case "jpg", "jpeg": return "image/jpeg"
@@ -333,6 +368,28 @@ public final class MdairHTML: NSObject {
     }
 
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "svg", "webp", "tiff", "tif"]
+
+    private static let numericEntity = try! NSRegularExpression(pattern: "&#([xX][0-9a-fA-F]+|[0-9]+);")
+
+    /// HTML 속성에 든 이미지 주소를 실제 파일 경로로 되돌린다.
+    /// cmark는 주소를 퍼센트 인코딩하고(공백 → %20, 한글 → %EC…) ' 와 & 를 &#x27; &amp; 로 바꾼다.
+    /// 엔티티를 먼저 풀고(&amp; 는 마지막) 그다음 퍼센트 인코딩을 푼다.
+    static func decodeImagePath(_ value: String) -> String {
+        var s = value
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+        for match in numericEntity.matches(in: s, range: NSRange(s.startIndex..., in: s)).reversed() {
+            guard let whole = Range(match.range, in: s), let digits = Range(match.range(at: 1), in: s) else { continue }
+            let text = s[digits]
+            let code = text.hasPrefix("x") || text.hasPrefix("X") ? UInt32(text.dropFirst(), radix: 16) : UInt32(text)
+            if let code, let scalar = Unicode.Scalar(code) {
+                s.replaceSubrange(whole, with: String(Character(scalar)))
+            }
+        }
+        s = s.replacingOccurrences(of: "&amp;", with: "&")
+        return s.removingPercentEncoding ?? s
+    }
 
     /// <img src="로컬경로">를 baseDir 기준으로 읽어 data URI로 바꾼다. 못 읽은 개수도 돌려준다.
     /// 문서가 아무 파일이나 페이지에 싣지 못하도록 <img>의 이미지 확장자 파일만 읽는다.
@@ -347,13 +404,7 @@ public final class MdairHTML: NSObject {
             guard let attrRange = Range(match.range(at: 1), in: html),
                   let pathRange = Range(match.range(at: 2), in: html) else { continue }
             let attr = String(html[attrRange])
-            let rawPath = String(html[pathRange])
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&lt;", with: "<")
-                .replacingOccurrences(of: "&gt;", with: ">")
-                .replacingOccurrences(of: "&amp;", with: "&")
-            // cmark는 주소를 퍼센트 인코딩한다(공백 → %20, 한글 → %EC…). 실제 파일 이름으로 되돌린다.
-            let path = rawPath.removingPercentEncoding ?? rawPath
+            let path = decodeImagePath(String(html[pathRange]))
             if path.hasPrefix("http://") || path.hasPrefix("https://") || path.hasPrefix("data:") { continue }
             let fileURL = path.hasPrefix("/") ? URL(fileURLWithPath: path) : baseDir.appendingPathComponent(path)
             guard imageExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
@@ -381,7 +432,7 @@ public final class MdairHTML: NSObject {
                   let swiftRange = Range(match.range(at: 0), in: result) else { continue }
             let attr = String(result[attrRange])
             let encoded = String(result[filenameRange])
-            let filename = encoded.removingPercentEncoding ?? encoded  // cmark의 퍼센트 인코딩을 푼다
+            let filename = decodeImagePath(encoded)
 
             guard let imgData = assets[filename] ?? assets[encoded] else {
                 result.replaceSubrange(swiftRange, with: "\(attr)=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iNTAiPjx0ZXh0IHg9IjEwIiB5PSIzMCIgZmlsbD0iIzk5OSI+SW1hZ2Ugbm90IGZvdW5kPC90ZXh0Pjwvc3ZnPg==\"")

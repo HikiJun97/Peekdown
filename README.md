@@ -36,7 +36,7 @@
 | **Standalone Viewer** | Double-click or drag `.md` files to open in a dedicated window |
 | **Window Tabs** | Open multiple documents as native macOS tabs in a single window |
 | **Dark Mode** | Automatic light/dark theme matching your system preference |
-| **Standard Markdown** | CommonMark + GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks) via [cmark-gfm](https://github.com/github/cmark-gfm) |
+| **Standard Markdown** | CommonMark + GitHub Flavored Markdown (tables, task lists, strikethrough, autolinks, footnotes) via [cmark-gfm](https://github.com/github/cmark-gfm) |
 | **Mermaid Diagrams** | Rendered offline, in QuickLook as well as in the app |
 | **Safe by Default** | Scripts embedded in documents never run, and documents can't pull arbitrary local files into the page |
 | **Zoom** | Zoom in/out with `⌘+`/`⌘-` or trackpad pinch gestures |
