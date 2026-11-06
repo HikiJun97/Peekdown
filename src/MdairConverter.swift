@@ -2,7 +2,7 @@ import Foundation
 import CommonCrypto
 
 // MARK: - MdairConverter CLI
-// Usage: mdair-convert input.md [-o output.mdair]
+// Usage: peekdown-convert input.md [-o output.mdair]
 
 struct MdairConverter {
     struct ImageRef {
@@ -35,7 +35,7 @@ struct MdairConverter {
     }
 
     static func printUsage() {
-        print("Usage: mdair-convert <input.md> [-o output.mdair]")
+        print("Usage: peekdown-convert <input.md> [-o output.mdair]")
         print("")
         print("Converts a Markdown file with images into a .mdair bundle.")
         print("If -o is not specified, output filename is derived from input.")

@@ -35,8 +35,8 @@
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
         if (self.windows.count == 0) {
-            [self openMarkdownString:@"# mdair\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md` or `.mdair` file onto this app or use **Open With** in Finder."
-                           withTitle:@"mdair"];
+            [self openMarkdownString:@"# Peekdown\n\nMarkdown QuickLook Previewer.\n\nDrag a `.md` or `.mdair` file onto this app or use **Open With** in Finder."
+                           withTitle:@"Peekdown"];
         }
     });
 }
@@ -53,7 +53,7 @@
     [sender replyToOpenOrPrint:NSApplicationDelegateReplySuccess];
 }
 
-// Close the welcome/placeholder window (no representedURL, mdair.welcome
+// Close the welcome/placeholder window (no representedURL, peekdown.welcome
 // identifier) when the first real document is about to open, matching the
 // macOS convention (Safari/TextEdit) where a start window is replaced by the
 // first document rather than left dangling. windowWillClose: prunes it from
@@ -62,7 +62,7 @@
 - (void)dismissWelcomeWindowIfPresent {
     NSArray<NSWindow *> *snapshot = [self.windows copy];
     for (NSWindow *w in snapshot) {
-        if ([w.tabbingIdentifier isEqualToString:@"mdair.welcome"] &&
+        if ([w.tabbingIdentifier isEqualToString:@"peekdown.welcome"] &&
             [w representedURL] == nil) {
             [w close];
         }
@@ -182,14 +182,14 @@
 // window is already open, attach as a tab; otherwise present standalone.
 // MUST be called after [self.windows addObject:window] so lastObject is valid.
 - (void)presentDocumentWindow:(NSWindow *)window isDocument:(BOOL)isDocument {
-    static NSString *const kTabbingIdentifier = @"mdair.document";
+    static NSString *const kTabbingIdentifier = @"peekdown.document";
 
     // The welcome/placeholder window (isDocument == NO) has no representedURL
     // and must never co-mingle with real document tabs. Give it a distinct
     // tabbing identifier and disallow tabbing so it stays a standalone window
     // and is never picked as a tab host by a real document below.
     if (!isDocument) {
-        window.tabbingIdentifier = @"mdair.welcome";
+        window.tabbingIdentifier = @"peekdown.welcome";
         window.tabbingMode = NSWindowTabbingModeDisallowed;
         [window makeKeyAndOrderFront:nil];
         [self syncTabTitleForWindow:window];
@@ -326,10 +326,10 @@
         [alert runModal];
         return;
     }
-    NSString *toolPath = [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"mdair-convert"];
+    NSString *toolPath = [[NSBundle mainBundle] pathForAuxiliaryExecutable:@"peekdown-convert"];
     if (!toolPath || ![[NSFileManager defaultManager] fileExistsAtPath:toolPath]) {
         NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = @"mdair-convert 도구를 찾을 수 없습니다";
+        alert.messageText = @"peekdown-convert 도구를 찾을 수 없습니다";
         [alert runModal];
         return;
     }
@@ -509,9 +509,9 @@ int main(int argc, const char *argv[]) {
         NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
         [menuBar addItem:appMenuItem];
         NSMenu *appMenu = [[NSMenu alloc] init];
-        [appMenu addItemWithTitle:@"About mdair" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+        [appMenu addItemWithTitle:@"About Peekdown" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
         [appMenu addItem:[NSMenuItem separatorItem]];
-        [appMenu addItemWithTitle:@"Quit mdair" action:@selector(terminate:) keyEquivalent:@"q"];
+        [appMenu addItemWithTitle:@"Quit Peekdown" action:@selector(terminate:) keyEquivalent:@"q"];
         [appMenuItem setSubmenu:appMenu];
 
         NSMenuItem *fileMenuItem = [[NSMenuItem alloc] init];

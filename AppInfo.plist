@@ -5,23 +5,23 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>mdair</string>
+    <string>Peekdown</string>
     <key>CFBundleIdentifier</key>
-    <string>com.mdair.app</string>
+    <string>io.github.hikijun97.peekdown</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>mdair</string>
+    <string>Peekdown</string>
     <key>CFBundleDisplayName</key>
-    <string>mdair</string>
+    <string>Peekdown</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.3.0</string>
+    <string>0.1.0</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>1</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
-    <string>MDAR</string>
+    <string>????</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>CFBundleIconFile</key>
@@ -63,7 +63,7 @@
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>LSHandlerRank</key>
-            <string>Owner</string>
+            <string>Alternate</string>
             <key>LSItemContentTypes</key>
             <array>
                 <string>com.mdair.document</string>
@@ -74,7 +74,7 @@
             </array>
         </dict>
     </array>
-    <key>UTExportedTypeDeclarations</key>
+    <key>UTImportedTypeDeclarations</key>
     <array>
         <dict>
             <key>UTTypeIdentifier</key>
@@ -96,9 +96,6 @@
                 <string>application/x-mdair</string>
             </dict>
         </dict>
-    </array>
-    <key>UTImportedTypeDeclarations</key>
-    <array>
         <dict>
             <key>UTTypeIdentifier</key>
             <string>net.daringfireball.markdown</string>
