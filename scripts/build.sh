@@ -17,6 +17,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp "$PROJECT_ROOT/AppInfo.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_ROOT/resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$PROJECT_ROOT/resources/mermaid.min.js" "$PROJECT_ROOT/resources/mermaid-LICENSE.txt" "$APP_BUNDLE/Contents/Resources/"
 echo -n "APPLMDAR" > "$APP_BUNDLE/Contents/PkgInfo"
 
 # 렌더러(Swift)를 ObjC 앱에서 부를 수 있게 헤더를 만든 뒤, 아키텍처별로 빌드해 합친다
@@ -57,6 +58,9 @@ echo "  ✓ mdair.app"
 # --- 2. Build QuickLook Preview Extension ---
 echo "[2/5] Building QLMarkdownPreview.appex..."
 mkdir -p "$EXT_BUNDLE/Contents/MacOS"
+mkdir -p "$EXT_BUNDLE/Contents/Resources"
+# 확장은 샌드박스라 앱 번들을 읽는다고 장담할 수 없어 mermaid를 따로 넣는다
+cp "$PROJECT_ROOT/resources/mermaid.min.js" "$PROJECT_ROOT/resources/mermaid-LICENSE.txt" "$EXT_BUNDLE/Contents/Resources/"
 
 cp "$PROJECT_ROOT/ExtInfo.plist" "$EXT_BUNDLE/Contents/Info.plist"
 

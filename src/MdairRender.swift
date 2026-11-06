@@ -493,17 +493,26 @@ public final class MdairHTML: NSObject {
     }
     """
 
+    /// 번들에 넣은 mermaid.min.js. QuickLook 확장은 macOS가 외부 네트워크를 막아 CDN에서 받을 수 없다.
+    /// 3MB가 넘으므로 다이어그램이 있는 문서에만 넣는다.
+    static let mermaidScript: String? = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+
     /// 문서 본문은 HTML을 그대로 통과시키므로, CSP로 우리가 넣은 스크립트(nonce가 맞는 것)만 실행한다.
     /// 본문에 끼워 넣은 <script>, onerror= 같은 인라인 핸들러, javascript: URL은 막힌다.
     static func page(body: String, notice: String = "") -> String {
         let nonce = UUID().uuidString
+        var mermaid = ""
+        if body.contains("class=\"mermaid\""), let script = mermaidScript {
+            mermaid = "<script nonce='\(nonce)'>\(script)</script>"
+                + "<script nonce='\(nonce)'>mermaid.initialize({startOnLoad:true,theme:'default'});</script>"
+        }
         return """
         <!DOCTYPE html><html><head><meta charset='utf-8'>\
         <meta http-equiv='Content-Security-Policy' content="script-src 'nonce-\(nonce)'; object-src 'none'; base-uri 'none'">\
         <style>\(css)</style></head>\
         <body>\(notice)\(body)\
-        <script nonce='\(nonce)' src='https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js'></script>\
-        <script nonce='\(nonce)'>mermaid.initialize({startOnLoad:true,theme:'default'});</script>\
+        \(mermaid)\
         <script nonce='\(nonce)'>(function(){var t=null,m=null;function s(){if(!t){t=document.createElement('div');t.id='mdair-toast';t.textContent='복사됨';document.body.appendChild(t);}t.classList.add('show');clearTimeout(m);m=setTimeout(function(){t.classList.remove('show');},1200);}document.addEventListener('copy',s);})();</script>\
         </body></html>
         """
