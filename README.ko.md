@@ -36,7 +36,7 @@
 | **독립 뷰어** | `.md` 파일을 더블클릭하거나 끌어다 놓으면 전용 창에서 열립니다 |
 | **창 탭** | 여러 문서를 macOS 기본 탭으로 한 창에 모아 엽니다 |
 | **다크 모드** | 시스템 설정에 맞춰 밝은 테마와 어두운 테마가 바뀝니다 |
-| **표준 마크다운** | [cmark-gfm](https://github.com/github/cmark-gfm)으로 CommonMark와 GitHub Flavored Markdown(표, 체크리스트, 취소선, 자동 링크)을 지원합니다 |
+| **표준 마크다운** | [cmark-gfm](https://github.com/github/cmark-gfm)으로 CommonMark와 GitHub Flavored Markdown(표, 체크리스트, 취소선, 자동 링크, 각주)을 지원합니다 |
 | **Mermaid 다이어그램** | 오프라인에서도, QuickLook에서도 그려집니다 |
 | **안전한 기본값** | 문서에 넣은 스크립트는 실행되지 않고, 문서가 아무 로컬 파일이나 페이지에 싣지 못합니다 |
 | **확대·축소** | `⌘+`/`⌘-` 또는 트랙패드 핀치로 확대하고 축소합니다 |

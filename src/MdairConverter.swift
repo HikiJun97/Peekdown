@@ -80,7 +80,7 @@ struct MdairConverter {
             if copied {
                 processedRefs.append(ref)
                 // Rewrite path in markdown
-                let newRef = "![\(ref.alt)](assets/\(resolvedFilename))"
+                let newRef = "![\(ref.alt)](assets/\(encodeDestination(resolvedFilename)))"
                 markdown = markdown.replacingOccurrences(of: ref.fullMatch, with: newRef)
             } else {
                 fputs("Warning: Could not resolve image: \(ref.originalPath)\n", stderr)
@@ -133,10 +133,33 @@ struct MdairConverter {
 
             let fullMatch = String(markdown[fullRange])
             let alt = String(markdown[altRange])
-            let path = String(markdown[pathRange])
+            let path = localPath(String(markdown[pathRange]))
 
             return ImageRef(fullMatch: fullMatch, alt: alt, originalPath: path, assetFilename: "")
         }
+    }
+
+    /// 마크다운 주소를 실제 경로로 바꾼다: <a b.png> 꺾쇠를 벗기고, a%20b.png 같은 퍼센트 인코딩을 푼다.
+    static func localPath(_ destination: String) -> String {
+        var path = destination.trimmingCharacters(in: .whitespaces)
+        if path.hasPrefix("<") && path.hasSuffix(">") { path = String(path.dropFirst().dropLast()) }
+        if path.hasPrefix("data:") || path.hasPrefix("http://") || path.hasPrefix("https://") { return path }
+        return path.removingPercentEncoding ?? path
+    }
+
+    /// 파일 이름을 마크다운 주소로 쓸 수 있게 공백·괄호·꺾쇠·%·\ 를 퍼센트 인코딩한다.
+    /// CommonMark는 공백이 든 주소를 이미지로 보지 않는다.
+    static func encodeDestination(_ filename: String) -> String {
+        let unsafe = Set(" \t()<>%\\".unicodeScalars)
+        var out = ""
+        for scalar in filename.unicodeScalars {
+            if unsafe.contains(scalar) || scalar.properties.generalCategory == .control {
+                out += String(scalar).utf8.map { String(format: "%%%02X", $0) }.joined()
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     static func resolveFilename(_ originalPath: String, usedFilenames: inout [String: Int]) -> String {

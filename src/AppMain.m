@@ -245,6 +245,11 @@
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL *url = navigationAction.request.URL;
     if (navigationAction.navigationType == WKNavigationTypeLinkActivated && url) {
+        // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 그대로 둔다
+        if ([MdairHTML isSameDocumentLink:url currentURL:webView.URL]) {
+            decisionHandler(WKNavigationActionPolicyAllow);
+            return;
+        }
         // 문서 속 링크로 앱이나 스크립트를 실행하지 못하게, 여는 대상을 제한한다
         NSString *scheme = url.scheme.lowercaseString;
         if ([@[@"http", @"https", @"mailto"] containsObject:scheme]) {

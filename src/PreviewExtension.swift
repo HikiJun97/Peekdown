@@ -31,7 +31,10 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
     // (com.apple.private.launchservices.allowedtolaunchinothersessions 권한 필요).
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(navigationAction.navigationType == .linkActivated ? .cancel : .allow)
+        // 각주(#fn-1)처럼 같은 문서 안에서 옮겨 가는 링크는 허용한다
+        let leavesDocument = navigationAction.navigationType == .linkActivated
+            && !MdairHTML.isSameDocumentLink(navigationAction.request.url, currentURL: webView.url)
+        decisionHandler(leavesDocument ? .cancel : .allow)
     }
 
     func preparePreviewOfFile(at url: URL) async throws {
