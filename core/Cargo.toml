@@ -1,0 +1,30 @@
+[package]
+name = "peekdown-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+publish = false
+description = "Peekdown의 렌더링·TextBundle·내보내기 로직. 앱, QuickLook 확장, 변환기가 함께 쓴다."
+
+[lib]
+name = "peekdown_core"
+
+[[bin]]
+name = "peekdown-convert"
+path = "src/bin/peekdown-convert.rs"
+
+[dependencies]
+comrak = { version = "0.59", default-features = false }
+miniz_oxide = "0.8"
+getrandom = "0.3"
+# comrak이 이미 쓰는 크레이트라 새로 늘지 않는다
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+serde_json = "1"
+regex-lite = "0.1"
+
+[profile.release]
+lto = true
+codegen-units = 1

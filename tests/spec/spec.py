@@ -5,9 +5,10 @@
       스펙 데이터에서 예제를 모은다. 묶음은 둘이다.
         commonmark  CommonMark 0.31.2 (commonmark-0.31.2.json)
         gfm         GitHub Flavored Markdown 0.29, cmark-gfm이 따르는 스펙 (gfm-spec.txt)
-  spec.py compare <cases.json> <rendered.json> [--update]
-      렌더 결과를 기대 HTML과 정규화해 비교한다. known-failures.txt에 없는 실패가 있으면 종료 코드 1.
-      --update 는 지금 실패 목록으로 known-failures.txt를 다시 쓴다(의도한 변화를 확인한 뒤에만).
+  spec.py compare <cases.json> <rendered.json> [--known <파일>] [--update]
+      렌더 결과를 기대 HTML과 정규화해 비교한다. 알려진 실패 목록(기본 known-failures.txt)에 없는 실패가
+      있으면 종료 코드 1. Rust 렌더러(core/)는 --known known-failures-core.txt 를 쓴다.
+      --update 는 지금 실패 목록으로 그 파일을 다시 쓴다(의도한 변화를 확인한 뒤에만).
 
 비교는 공식 테스트 도구처럼 공백·속성 순서·따옴표 차이를 무시하고, mdair가 img에 붙이는 style은 뺀다.
 """
@@ -93,7 +94,7 @@ def norm(html):
     return re.sub(r"\s*(</?(?:%s)\b[^>]*>)\s*" % "|".join(BLOCK), r"\1", s).strip()
 
 
-def compare(cases_path, rendered_path, update):
+def compare(cases_path, rendered_path, update, known_path=KNOWN):
     cases = json.load(open(cases_path, encoding="utf-8"))
     rendered = json.load(open(rendered_path, encoding="utf-8"))
     assert len(cases) == len(rendered), "cases와 렌더 결과 개수가 다르다"
@@ -104,15 +105,16 @@ def compare(cases_path, rendered_path, update):
         print(f"  {suite}: {total - bad}/{total} 통과")
 
     if update:
-        with open(KNOWN, "w", encoding="utf-8") as f:
-            f.write("# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우 등.\n")
+        with open(known_path, "w", encoding="utf-8") as f:
+            f.write("# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우,\n")
+            f.write("# GFM 스펙(0.29) 이후 CommonMark 0.31.2에서 바뀐 규칙을 따르는 경우 등.\n")
             f.write("# tests/spec/spec.py compare … --update 로 다시 만든다.\n")
             for key in sorted(failing, key=lambda k: (k.split()[0], int(k.split("#")[1]))):
                 f.write(f'{key}\t{failing[key]["section"]}\n')
-        print(f"  known-failures.txt 갱신: {len(failing)}개")
+        print(f"  {os.path.basename(known_path)} 갱신: {len(failing)}개")
         return 0
 
-    known = {line.split("\t")[0] for line in open(KNOWN, encoding="utf-8") if line.strip() and not line.startswith("#")}
+    known = {line.split("\t")[0] for line in open(known_path, encoding="utf-8") if line.strip() and not line.startswith("#")}
     new = sorted(set(failing) - known)
     fixed = sorted(known - set(failing))
     for key in new:
@@ -129,6 +131,7 @@ if __name__ == "__main__":
         json.dump(cases, open(sys.argv[2], "w", encoding="utf-8"), ensure_ascii=False)
         print(f"  예제 {len(cases)}개")
     elif sys.argv[1] == "compare":
-        sys.exit(compare(sys.argv[2], sys.argv[3], "--update" in sys.argv))
+        known = sys.argv[sys.argv.index("--known") + 1] if "--known" in sys.argv else KNOWN
+        sys.exit(compare(sys.argv[2], sys.argv[3], "--update" in sys.argv, known))
     else:
         sys.exit(__doc__)

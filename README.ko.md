@@ -74,6 +74,7 @@
 
 ## 로드맵
 
+- **여러 운영체제 지원** — 공통 로직을 Rust로 옮기고(마크다운은 [comrak](https://github.com/kivikakk/comrak), `core/`), 앱은 [Tauri](https://tauri.app)로 바꿉니다. macOS의 QuickLook 확장은 그대로 둡니다
 - **화면에서 바로 편집** — 편집 창을 따로 두지 않고, Notion처럼 렌더링된 문서에서 바로 고칩니다
 
 ## 설치
@@ -105,7 +106,7 @@ Peekdown은 Apple Developer ID로 서명하지 않아서 처음 열 때 macOS가
 
 ## 소스에서 빌드
 
-macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합니다.
+macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합니다. 테스트는 `core/`의 Rust 코드도 빌드하므로 [Rust](https://rustup.rs) 1.89 이상이 있어야 합니다.
 
 ```bash
 ./scripts/build.sh          # build/Peekdown.app 생성

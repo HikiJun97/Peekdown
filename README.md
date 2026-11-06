@@ -74,6 +74,7 @@ Open several documents at once and they group into a single window as native mac
 
 ## Roadmap
 
+- **Cross-platform** — move the shared logic to Rust ([comrak](https://github.com/kivikakk/comrak) for Markdown, in `core/`) and the app to [Tauri](https://tauri.app), keeping the QuickLook extension on macOS
 - **In-place editing** — edit directly on the rendered document, Notion-style, instead of a separate editor pane
 
 ## Installation
@@ -105,7 +106,7 @@ Peekdown is not signed with an Apple Developer ID, so macOS may block it the fir
 
 ## Build from Source
 
-Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools.
+Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools. The tests also build the Rust core in `core/`, which needs [Rust](https://rustup.rs) 1.89+.
 
 ```bash
 ./scripts/build.sh          # builds build/Peekdown.app
