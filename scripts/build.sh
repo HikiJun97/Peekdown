@@ -94,8 +94,6 @@ swiftc \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -Xlinker -rpath -Xlinker @executable_path/../../../../Frameworks \
     -Xlinker -e -Xlinker _NSExtensionMain \
-    -import-objc-header /dev/null \
-    -disable-bridging-pch \
     "${CMARK_SWIFT_FLAGS[@]}" \
     "$PROJECT_ROOT/src/MdairRender.swift" \
     "$PROJECT_ROOT/src/PreviewExtension.swift" \
@@ -110,7 +108,6 @@ swiftc \
     -target "$TARGET" \
     -module-name TextBundleConverter \
     -o "$APP_BUNDLE/Contents/MacOS/peekdown-convert" \
-    -import-objc-header /dev/null \
     "$PROJECT_ROOT/src/TextBundleConverter.swift" \
     2>&1
 

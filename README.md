@@ -109,6 +109,7 @@ Requires an Apple silicon Mac with macOS 13.0+ and Xcode Command Line Tools.
 
 ```bash
 ./scripts/build.sh          # builds build/Peekdown.app
+tests/run.sh                # builds and runs all tests (see tests/README.md)
 
 # Optional installers
 ./scripts/create-pkg.sh

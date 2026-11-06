@@ -109,6 +109,7 @@ macOS 13.0 이상의 Apple silicon Mac과 Xcode Command Line Tools가 필요합�
 
 ```bash
 ./scripts/build.sh          # build/Peekdown.app 생성
+tests/run.sh                # 빌드하고 전체 테스트 실행 (tests/README.md 참고)
 
 # 설치 파일 (선택)
 ./scripts/create-pkg.sh
