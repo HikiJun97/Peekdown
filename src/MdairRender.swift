@@ -1,7 +1,8 @@
 import Foundation
 import Compression
+import CMarkGFM
 
-// 앱(mdair.app)과 QuickLook 확장이 함께 쓰는 렌더링 코드.
+// 앱(Peekdown.app)과 QuickLook 확장이 함께 쓰는 렌더링 코드.
 // 앱은 ObjC라서 맨 아래 MdairHTML의 @objc 메서드로 부른다.
 
 // MARK: - ZIP Parser (Pure Foundation, Sandbox-Safe)
@@ -158,244 +159,41 @@ struct MdairParser {
 
 // MARK: - Markdown Renderer
 
+/// CommonMark + GitHub Flavored Markdown 렌더러 (cmark-gfm).
 struct MarkdownRenderer {
+    private static let extensions = ["table", "strikethrough", "autolink", "tagfilter", "tasklist"]
+    // HTML은 지금처럼 통과시킨다. 문서 속 스크립트는 페이지의 CSP가 막고,
+    // <script>·<style>·<iframe> 같은 위험한 태그는 tagfilter 확장이 무력화한다.
+    private static let options = CMARK_OPT_UNSAFE
+    private static let registered: Void = cmark_gfm_core_extensions_ensure_registered()
+
     func render(_ markdown: String) -> String {
-        let lines = markdown.components(separatedBy: "\n")
-        var output: [String] = []
-        var inCodeBlock = false
-        var codeBlockContent: [String] = []
-        var codeBlockLang = ""
-        var inList = false
-        var inOrderedList = false
-        var inBlockquote = false
-        var inTable = false
-
-        func closeLists() {
-            if inList { output.append("</ul>"); inList = false }
-            if inOrderedList { output.append("</ol>"); inOrderedList = false }
+        _ = Self.registered
+        guard let parser = cmark_parser_new(Self.options) else { return "" }
+        defer { cmark_parser_free(parser) }
+        for name in Self.extensions {
+            if let ext = cmark_find_syntax_extension(name) {
+                cmark_parser_attach_syntax_extension(parser, ext)
+            }
         }
-        func closeBlocks() {
-            closeLists()
-            if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
-            if inTable { output.append("</table>"); inTable = false }
-        }
-        func flushCodeBlock() {
-            let code = escapeHTML(codeBlockContent.joined(separator: "\n"))
-            // mermaid는 innerHTML의 엔티티를 풀어서 읽으므로 이스케이프해도 그대로 그려진다
-            if codeBlockLang == "mermaid" {
-                output.append("<pre class=\"mermaid\">\(code)</pre>")
-            } else {
-                output.append("<pre><code>\(code)</code></pre>")
-            }
-            codeBlockContent = []
-            codeBlockLang = ""
-            inCodeBlock = false
-        }
-
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-
-            // Fenced code blocks
-            if trimmed.hasPrefix("```") {
-                if inCodeBlock {
-                    flushCodeBlock()
-                } else {
-                    closeBlocks()
-                    codeBlockLang = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                    inCodeBlock = true
-                }
-                continue
-            }
-            if inCodeBlock {
-                codeBlockContent.append(line)
-                continue
-            }
-
-            // Horizontal rule
-            if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-                closeBlocks()
-                output.append("<hr>")
-                continue
-            }
-
-            // Headings
-            if let level = headingLevel(trimmed) {
-                closeBlocks()
-                let content = String(trimmed.dropFirst(level + 1))
-                output.append("<h\(level)>\(inline(content))</h\(level)>")
-                continue
-            }
-
-            // Blockquote
-            if trimmed.hasPrefix("> ") {
-                closeLists()
-                if inTable { output.append("</table>"); inTable = false }
-                if !inBlockquote { output.append("<blockquote>"); inBlockquote = true }
-                output.append(inline(String(trimmed.dropFirst(2))))
-                continue
-            } else if inBlockquote && trimmed.isEmpty {
-                output.append("</blockquote>"); inBlockquote = false
-            }
-
-            // Table
-            if trimmed.hasPrefix("|") {
-                let cleaned = trimmed.replacingOccurrences(of: "-", with: "")
-                    .replacingOccurrences(of: "|", with: "")
-                    .replacingOccurrences(of: ":", with: "")
-                    .trimmingCharacters(in: .whitespaces)
-                if cleaned.isEmpty { continue } // separator row
-
-                if !inTable {
-                    closeLists()
-                    if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
-                    output.append("<table>")
-                    inTable = true
-                    output.append("<tr>" + tableCells(trimmed).map { "<th>\(inline($0))</th>" }.joined() + "</tr>")
-                } else {
-                    output.append("<tr>" + tableCells(trimmed).map { "<td>\(inline($0))</td>" }.joined() + "</tr>")
-                }
-                continue
-            } else if inTable {
-                output.append("</table>"); inTable = false
-            }
-
-            // Unordered list
-            if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ") {
-                if inOrderedList { output.append("</ol>"); inOrderedList = false }
-                if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
-                if !inList { output.append("<ul>"); inList = true }
-                var content = String(trimmed.dropFirst(2))
-                var checkbox = ""
-                if content.hasPrefix("[ ] ") {
-                    checkbox = "<input type='checkbox' disabled> "
-                    content = String(content.dropFirst(4))
-                } else if content.hasPrefix("[x] ") || content.hasPrefix("[X] ") {
-                    checkbox = "<input type='checkbox' checked disabled> "
-                    content = String(content.dropFirst(4))
-                }
-                output.append("<li>\(checkbox)\(inline(content))</li>")
-                continue
-            }
-
-            // Ordered list
-            if let range = trimmed.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
-                if inList { output.append("</ul>"); inList = false }
-                if inBlockquote { output.append("</blockquote>"); inBlockquote = false }
-                if !inOrderedList { output.append("<ol>"); inOrderedList = true }
-                output.append("<li>\(inline(String(trimmed[range.upperBound...])))</li>")
-                continue
-            }
-
-            // Empty line
-            if trimmed.isEmpty {
-                closeLists()
-                output.append("")
-                continue
-            }
-
-            // HTML passthrough — lines starting with < are kept as-is
-            if trimmed.hasPrefix("<") {
-                closeBlocks()
-                output.append(line)
-                continue
-            }
-
-            // 목록 바로 다음 줄은 마지막 항목에 이어 붙인다 (GitHub과 같은 동작)
-            if (inList || inOrderedList), let last = output.last, last.hasSuffix("</li>") {
-                output[output.count - 1] = String(last.dropLast(5)) + " " + inline(trimmed) + "</li>"
-                continue
-            }
-
-            // Paragraph
-            output.append("<p>\(inline(trimmed))</p>")
-        }
-
-        // Close open tags
-        closeBlocks()
-        if inCodeBlock { flushCodeBlock() }
-
-        return output.joined(separator: "\n")
+        var source = markdown
+        source.withUTF8 { cmark_parser_feed(parser, $0.baseAddress, $0.count) }
+        guard let document = cmark_parser_finish(parser) else { return "" }
+        defer { cmark_node_free(document) }
+        guard let rendered = cmark_render_html(document, Self.options, cmark_parser_get_syntax_extensions(parser)) else { return "" }
+        defer { free(rendered) }
+        return Self.mermaidBlocks(String(cString: rendered))
     }
 
-    private func headingLevel(_ line: String) -> Int? {
-        for level in (1...6).reversed() {
-            let prefix = String(repeating: "#", count: level) + " "
-            if line.hasPrefix(prefix) { return level }
-        }
-        return nil
+    // ```mermaid 블록을 mermaid.js가 찾는 <pre class="mermaid">로 바꾼다.
+    // 내용은 이스케이프된 채로 두며, mermaid가 엔티티를 풀어서 읽는다.
+    private static let mermaidPattern = try! NSRegularExpression(
+        pattern: #"<pre><code class="language-mermaid">([\s\S]*?)</code></pre>"#)
+
+    private static func mermaidBlocks(_ html: String) -> String {
+        mermaidPattern.stringByReplacingMatches(
+            in: html, range: NSRange(html.startIndex..., in: html), withTemplate: "<pre class=\"mermaid\">$1</pre>")
     }
-
-    // 앞뒤 파이프만 떼고 나눠서 빈 셀도 자리를 지키게 한다
-    private func tableCells(_ row: String) -> [String] {
-        var inner = Substring(row)
-        if inner.hasPrefix("|") { inner = inner.dropFirst() }
-        if inner.hasSuffix("|") { inner = inner.dropLast() }
-        return inner.split(separator: "|", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-    }
-
-    // 블록 하나의 텍스트에 인라인 서식을 적용한다. 인라인 코드 안은 건드리지 않는다.
-    private func inline(_ text: String) -> String {
-        var codeSpans: [String] = []
-        var html = replace(text, pattern: #"`([^`]+)`"#) { groups in
-            codeSpans.append("<code>\(escapeHTML(groups[1]))</code>")
-            return "\u{E000}\(codeSpans.count - 1)\u{E001}"
-        }
-
-        html = applyRegex(html, pattern: #"\*\*\*(.*?)\*\*\*"#, template: "<strong><em>$1</em></strong>")
-        html = applyRegex(html, pattern: #"\*\*(.*?)\*\*"#, template: "<strong>$1</strong>")
-        // 별표 바로 안쪽이 공백이면 강조가 아니다: "2 * 3 * 4"
-        html = applyRegex(html, pattern: #"(?<!\*)\*(?![\s*])(.+?)(?<![\s*])\*(?!\*)"#, template: "<em>$1</em>")
-        html = applyRegex(html, pattern: #"~~(.*?)~~"#, template: "<del>$1</del>")
-        // URL과 alt는 속성값이라 따옴표를 이스케이프해야 onerror= 같은 속성을 끼워 넣지 못한다
-        html = replace(html, pattern: #"!\[([^\]]*)\]\(([^)]+)\)"#) { g in
-            "<img src=\"\(escapeAttribute(g[2]))\" alt=\"\(escapeAttribute(g[1]))\" style=\"max-width:100%;\">"
-        }
-        html = replace(html, pattern: #"\[([^\]]+)\]\(([^)]+)\)"#) { g in
-            "<a href=\"\(escapeAttribute(g[2]))\">\(g[1])</a>"
-        }
-
-        return replace(html, pattern: "\u{E000}(\\d+)\u{E001}") { groups in codeSpans[Int(groups[1])!] }
-    }
-
-    private func applyRegex(_ string: String, pattern: String, template: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return string }
-        let range = NSRange(string.startIndex..., in: string)
-        return regex.stringByReplacingMatches(in: string, options: [], range: range, withTemplate: template)
-    }
-
-    // 매치마다 클로저로 치환 문자열을 만든다. groups[0]은 전체 매치.
-    private func replace(_ string: String, pattern: String, with transform: ([String]) -> String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return string }
-        var result = ""
-        var cursor = string.startIndex
-        for match in regex.matches(in: string, range: NSRange(string.startIndex..., in: string)) {
-            guard let whole = Range(match.range, in: string) else { continue }
-            let groups = (0..<match.numberOfRanges).map { i -> String in
-                Range(match.range(at: i), in: string).map { String(string[$0]) } ?? ""
-            }
-            result += string[cursor..<whole.lowerBound]
-            result += transform(groups)
-            cursor = whole.upperBound
-        }
-        result += string[cursor...]
-        return result
-    }
-}
-
-func escapeHTML(_ s: String) -> String {
-    s.replacingOccurrences(of: "&", with: "&amp;")
-        .replacingOccurrences(of: "<", with: "&lt;")
-        .replacingOccurrences(of: ">", with: "&gt;")
-}
-
-// 링크 주소와 alt에 쓴 엔티티(&amp; 등)는 CommonMark에서 글자로 풀어 읽으므로 다시 이스케이프하지 않는다.
-// 속성 안의 &quot;는 값의 일부로 풀릴 뿐 속성을 닫지 않으므로 보안에는 영향이 없다.
-func escapeAttribute(_ s: String) -> String {
-    s.replacingOccurrences(of: #"&(?!#?[A-Za-z0-9]+;)"#, with: "&amp;", options: .regularExpression)
-        .replacingOccurrences(of: "<", with: "&lt;")
-        .replacingOccurrences(of: ">", with: "&gt;")
-        .replacingOccurrences(of: "\"", with: "&quot;")
 }
 
 // MARK: - Page & Image Inlining
@@ -549,11 +347,13 @@ public final class MdairHTML: NSObject {
             guard let attrRange = Range(match.range(at: 1), in: html),
                   let pathRange = Range(match.range(at: 2), in: html) else { continue }
             let attr = String(html[attrRange])
-            let path = String(html[pathRange])
+            let rawPath = String(html[pathRange])
                 .replacingOccurrences(of: "&quot;", with: "\"")
                 .replacingOccurrences(of: "&lt;", with: "<")
                 .replacingOccurrences(of: "&gt;", with: ">")
                 .replacingOccurrences(of: "&amp;", with: "&")
+            // cmark는 주소를 퍼센트 인코딩한다(공백 → %20, 한글 → %EC…). 실제 파일 이름으로 되돌린다.
+            let path = rawPath.removingPercentEncoding ?? rawPath
             if path.hasPrefix("http://") || path.hasPrefix("https://") || path.hasPrefix("data:") { continue }
             let fileURL = path.hasPrefix("/") ? URL(fileURLWithPath: path) : baseDir.appendingPathComponent(path)
             guard imageExtensions.contains(fileURL.pathExtension.lowercased()) else { continue }
@@ -580,9 +380,10 @@ public final class MdairHTML: NSObject {
                   let filenameRange = Range(match.range(at: 2), in: result),
                   let swiftRange = Range(match.range(at: 0), in: result) else { continue }
             let attr = String(result[attrRange])
-            let filename = String(result[filenameRange])
+            let encoded = String(result[filenameRange])
+            let filename = encoded.removingPercentEncoding ?? encoded  // cmark의 퍼센트 인코딩을 푼다
 
-            guard let imgData = assets[filename] else {
+            guard let imgData = assets[filename] ?? assets[encoded] else {
                 result.replaceSubrange(swiftRange, with: "\(attr)=\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iNTAiPjx0ZXh0IHg9IjEwIiB5PSIzMCIgZmlsbD0iIzk5OSI+SW1hZ2Ugbm90IGZvdW5kPC90ZXh0Pjwvc3ZnPg==\"")
                 continue
             }

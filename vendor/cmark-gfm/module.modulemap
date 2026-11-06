@@ -1,0 +1,6 @@
+// Swift에서 `import CMarkGFM`으로 쓰기 위한 모듈 정의
+module CMarkGFM {
+    header "src/cmark-gfm.h"
+    header "extensions/cmark-gfm-core-extensions.h"
+    export *
+}
