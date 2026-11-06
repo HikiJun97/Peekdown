@@ -1,0 +1,31 @@
+# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우,
+# GFM 스펙(0.29) 이후 CommonMark 0.31.2에서 바뀐 규칙을 따르는 경우 등.
+# tests/spec/spec.py compare … --update 로 다시 만든다.
+commonmark #170	HTML blocks
+commonmark #171	HTML blocks
+commonmark #172	HTML blocks
+commonmark #173	HTML blocks
+commonmark #176	HTML blocks
+commonmark #178	HTML blocks
+commonmark #602	Autolinks
+commonmark #608	Autolinks
+commonmark #611	Autolinks
+commonmark #612	Autolinks
+gfm #140	HTML blocks
+gfm #141	HTML blocks
+gfm #142	HTML blocks
+gfm #145	HTML blocks
+gfm #147	HTML blocks
+gfm #398	Emphasis and strong emphasis
+gfm #426	Emphasis and strong emphasis
+gfm #434	Emphasis and strong emphasis
+gfm #435	Emphasis and strong emphasis
+gfm #436	Emphasis and strong emphasis
+gfm #473	Emphasis and strong emphasis
+gfm #474	Emphasis and strong emphasis
+gfm #475	Emphasis and strong emphasis
+gfm #477	Emphasis and strong emphasis
+gfm #610	Autolinks
+gfm #616	Autolinks
+gfm #619	Autolinks
+gfm #620	Autolinks
