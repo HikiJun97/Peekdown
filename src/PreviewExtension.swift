@@ -26,17 +26,12 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
         loadContinuation = nil
     }
 
-    // 링크는 미리보기 안에서 이동하지 않고 브라우저로 연다. 파일 링크로 앱을 실행하지 못하게 웹 주소만 허용한다.
+    // 링크를 눌러도 미리보기 안에서 페이지를 옮기지 않는다. 확장은 네트워크가 막혀 빈 화면만 남고 돌아올 방법도 없다.
+    // 브라우저로 여는 것도 안 된다: macOS가 QuickLook 확장의 앱 실행을 막는다
+    // (com.apple.private.launchservices.allowedtolaunchinothersessions 권한 필요).
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
-            if ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") {
-                NSWorkspace.shared.open(url)
-            }
-            decisionHandler(.cancel)
-            return
-        }
-        decisionHandler(.allow)
+        decisionHandler(navigationAction.navigationType == .linkActivated ? .cancel : .allow)
     }
 
     func preparePreviewOfFile(at url: URL) async throws {
