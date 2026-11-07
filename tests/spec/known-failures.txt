@@ -1,24 +1,13 @@
-# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우 등.
+# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우,
+# GFM 스펙(0.29) 이후 CommonMark 0.31.2에서 바뀐 규칙을 따르는 경우 등.
 # tests/spec/spec.py compare … --update 로 다시 만든다.
-commonmark #28	Entity and numeric character references
 commonmark #170	HTML blocks
 commonmark #171	HTML blocks
 commonmark #172	HTML blocks
 commonmark #173	HTML blocks
 commonmark #176	HTML blocks
 commonmark #178	HTML blocks
-commonmark #354	Emphasis and strong emphasis
-commonmark #389	Emphasis and strong emphasis
-commonmark #417	Emphasis and strong emphasis
-commonmark #425	Emphasis and strong emphasis
-commonmark #426	Emphasis and strong emphasis
-commonmark #427	Emphasis and strong emphasis
-commonmark #464	Emphasis and strong emphasis
-commonmark #465	Emphasis and strong emphasis
-commonmark #466	Emphasis and strong emphasis
-commonmark #468	Emphasis and strong emphasis
 commonmark #602	Autolinks
-commonmark #606	Autolinks
 commonmark #608	Autolinks
 commonmark #611	Autolinks
 commonmark #612	Autolinks
@@ -27,8 +16,16 @@ gfm #141	HTML blocks
 gfm #142	HTML blocks
 gfm #145	HTML blocks
 gfm #147	HTML blocks
+gfm #398	Emphasis and strong emphasis
+gfm #426	Emphasis and strong emphasis
+gfm #434	Emphasis and strong emphasis
+gfm #435	Emphasis and strong emphasis
+gfm #436	Emphasis and strong emphasis
+gfm #473	Emphasis and strong emphasis
+gfm #474	Emphasis and strong emphasis
+gfm #475	Emphasis and strong emphasis
+gfm #477	Emphasis and strong emphasis
 gfm #610	Autolinks
-gfm #614	Autolinks
 gfm #616	Autolinks
 gfm #619	Autolinks
 gfm #620	Autolinks

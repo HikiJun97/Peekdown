@@ -1,11 +1,9 @@
 // tests/run.sh가 쓰는 Rust 쪽 테스트 하네스.
 //   harness spec <cases.json> <out.json>   스펙 예제를 렌더링해 저장(비교는 tests/spec/spec.py)
 //   harness bundle <path>                  TextBundle/TextPack을 열어 제목과 이미지 인라인 결과를 출력
-//   harness page [base-dir]                표준 입력의 마크다운으로 완성 페이지를 출력(webkit 묶음이 띄워 본다)
 
-use peekdown_core::{page_for_markdown, page_for_textbundle, render};
+use peekdown_core::{page_for_textbundle, render};
 use regex_lite::Regex;
-use std::io::Read;
 use std::path::Path;
 use std::process::exit;
 
@@ -14,13 +12,8 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("spec") if args.len() == 4 => spec(&args[2], &args[3]),
         Some("bundle") if args.len() == 3 => bundle(&args[2]),
-        Some("page") => {
-            let mut markdown = String::new();
-            std::io::stdin().read_to_string(&mut markdown).expect("표준 입력을 읽을 수 없다");
-            print!("{}", page_for_markdown(&markdown, args.get(2).map(Path::new)));
-        }
         _ => {
-            eprintln!("usage: harness spec <cases.json> <out.json> | bundle <path> | page [base-dir]");
+            eprintln!("usage: harness spec <cases.json> <out.json> | bundle <path>");
             exit(2);
         }
     }

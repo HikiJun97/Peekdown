@@ -1,11 +1,10 @@
 #!/bin/bash
 # peekdown-convert(내보내기)와 TextBundle/TextPack 읽기를 실제 파일로 검사한다.
-# 사용법: tests/converter.sh <peekdown-convert 경로> <harness 경로> [--core]   (보통 tests/run.sh가 부른다)
-# --core: Rust 변환기(core/)에서 고친 동작까지 검사한다(보이는 이미지만 담기, 이름 정규화)
+# 사용법: tests/converter.sh <peekdown-convert 경로> <harness 경로>   (보통 tests/run.sh가 부른다)
+# harness는 core/examples/harness.rs (bundle 명령)
 set -u
 CONV="$1"
 HARNESS="$2"
-CORE="${3:-}"
 W=$(mktemp -d "${TMPDIR:-/tmp}/peekdown-conv.XXXXXX")
 trap 'rm -rf "$W"' EXIT
 FAIL=0
@@ -108,12 +107,11 @@ mkdir -p "$W/dir.textpack"
 "$CONV" "$W/doc/doc.md" -o "$W/dir.textpack" >/dev/null 2>&1
 expect "폴더인 .textpack 출력은 거부" test "$?" -ne 0
 
-if [ "$CORE" = "--core" ]; then
-    echo "[converter] 화면에 보이는 이미지만 담기"
-    mkdir -p "$W/vis/doc" "$W/vis/private"
-    png "$W/vis/private/secret.png"
-    png "$W/vis/doc/shown.png"
-    cat > "$W/vis/doc/notes.md" <<'EOF'
+echo "[converter] 화면에 보이는 이미지만 담기"
+mkdir -p "$W/vis/doc" "$W/vis/private"
+png "$W/vis/private/secret.png"
+png "$W/vis/doc/shown.png"
+cat > "$W/vis/doc/notes.md" <<'EOF'
 # 노트
 <!-- ![](../private/secret.png) -->
 `![](../private/secret.png)`
@@ -132,24 +130,23 @@ if [ "$CORE" = "--core" ]; then
 
 [r]: shown.png
 EOF
-    "$CONV" "$W/vis/doc/notes.md" -o "$W/vis.textpack" >/dev/null 2>&1
-    VLIST=$(unzip -Z1 "$W/vis.textpack" 2>/dev/null)
-    expect "주석·코드 속 참조는 담지 않고, 같은 파일은 한 번만 담음" test "$(grep '^vis.textbundle/assets/.' <<<"$VLIST")" = "vis.textbundle/assets/shown.png"
-    VTEXT=$(unzip -p "$W/vis.textpack" vis.textbundle/text.md 2>/dev/null)
-    expect "주석 속 참조는 원문 그대로" contains "$VTEXT" "<!-- ![](../private/secret.png) -->"
-    expect "제목이 있는 이미지도 바꿈" contains "$VTEXT" '![list](assets/shown.png "제목")'
-    expect "목록·인용·표·참조식 이미지가 열림" contains "$("$HARNESS" bundle "$W/vis.textpack")" "images=list=OK,quote=OK,cell=OK,ref=OK"
+"$CONV" "$W/vis/doc/notes.md" -o "$W/vis.textpack" >/dev/null 2>&1
+VLIST=$(unzip -Z1 "$W/vis.textpack" 2>/dev/null)
+expect "주석·코드 속 참조는 담지 않고, 같은 파일은 한 번만 담음" test "$(grep '^vis.textbundle/assets/.' <<<"$VLIST")" = "vis.textbundle/assets/shown.png"
+VTEXT=$(unzip -p "$W/vis.textpack" vis.textbundle/text.md 2>/dev/null)
+expect "주석 속 참조는 원문 그대로" contains "$VTEXT" "<!-- ![](../private/secret.png) -->"
+expect "제목이 있는 이미지도 바꿈" contains "$VTEXT" '![list](assets/shown.png "제목")'
+expect "목록·인용·표·참조식 이미지가 열림" contains "$("$HARNESS" bundle "$W/vis.textpack")" "images=list=OK,quote=OK,cell=OK,ref=OK"
 
-    echo "[converter] 유니코드 정규화만 다른 이름"
-    mkdir -p "$W/nf/a" "$W/nf/b"
-    NFC=$(printf 'caf\xc3\xa9')
-    NFD=$(printf 'cafe\xcc\x81')
-    png "$W/nf/a/$NFC.png"
-    png "$W/nf/b/$NFD.png" && printf 'B' >> "$W/nf/b/$NFD.png"
-    printf '![](a/%s.png)\n\n![](b/%s.png)\n' "$NFC" "$NFD" > "$W/nf/nf.md"
-    "$CONV" "$W/nf/nf.md" -o "$W/nf.textbundle" >/dev/null 2>&1
-    expect "NFC·NFD 이름이 한 파일로 겹치지 않음" test "$(ls "$W/nf.textbundle/assets" | wc -l | tr -d ' ')" -eq 2
-fi
+echo "[converter] 유니코드 정규화만 다른 이름"
+mkdir -p "$W/nf/a" "$W/nf/b"
+NFC=$(printf 'caf\xc3\xa9')
+NFD=$(printf 'cafe\xcc\x81')
+png "$W/nf/a/$NFC.png"
+png "$W/nf/b/$NFD.png" && printf 'B' >> "$W/nf/b/$NFD.png"
+printf '![](a/%s.png)\n\n![](b/%s.png)\n' "$NFC" "$NFD" > "$W/nf/nf.md"
+"$CONV" "$W/nf/nf.md" -o "$W/nf.textbundle" >/dev/null 2>&1
+expect "NFC·NFD 이름이 한 파일로 겹치지 않음" test "$(ls "$W/nf.textbundle/assets" | wc -l | tr -d ' ')" -eq 2
 
 echo "  ${PASS}개 통과, ${FAIL}개 실패"
 [ "$FAIL" -eq 0 ]
