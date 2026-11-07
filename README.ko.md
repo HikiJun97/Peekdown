@@ -110,12 +110,10 @@ Peekdown은 Apple Developer ID로 서명하지 않아서 처음 열 때 macOS가
 macOS 13.0 이상의 Apple silicon Mac, Xcode Command Line Tools, [Rust](https://rustup.rs) 1.89 이상이 필요합니다.
 
 ```bash
-./scripts/build.sh          # build/Peekdown.app 생성
-tests/run.sh                # 빌드하고 전체 테스트 실행 (tests/README.md 참고)
-
-# 설치 파일 (선택)
-./scripts/create-pkg.sh
-./scripts/create-dmg.sh
+make                        # build/Peekdown.app 생성
+make test                   # 빌드하고 전체 테스트 실행 (tests/README.md 참고)
+make install                # /Applications에 설치하고, QuickLook이 새로 읽도록 Finder를 다시 띄움
+make help                   # 전체 명령 (pkg, dmg, run, notices, clean 등)
 ```
 
 ## 동작 방식
