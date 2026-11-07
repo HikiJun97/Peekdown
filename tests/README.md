@@ -1,9 +1,11 @@
 # Tests
 
 ```bash
-tests/run.sh                 # build, then run every suite (exit code 1 on any failure)
-tests/run.sh unit spec       # pick suites: unit, spec, webkit, converter
+make test                    # build, then run every suite (exit code 1 on any failure)
+make test SUITES="unit spec" # pick suites: unit, spec, webkit, converter
 ```
+
+`make test` runs `tests/run.sh`, which you can also call directly.
 
 `run.sh` builds the app with `scripts/build.sh` (which builds the Rust core in `core/`), the Rust test harness
 (`core/examples/harness.rs`) and the WebKit harness (`harness/main.swift` with `src/CoreBridge.swift`), and writes
@@ -23,7 +25,7 @@ changed after the GFM 0.29 spec was written.
 When a renderer change intentionally changes spec results, check the diff and then refresh the list:
 
 ```bash
-python3 tests/spec/spec.py compare build/tests/spec-cases.json build/tests/spec-rendered.json --update
+make spec-update
 ```
 
 Not covered: the app's Objective-C code paths (export runs the converter off the main thread and drains its stderr
