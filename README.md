@@ -110,12 +110,11 @@ Peekdown is not signed with an Apple Developer ID, so macOS may block it the fir
 Requires an Apple silicon Mac with macOS 13.0+, Xcode Command Line Tools and [Rust](https://rustup.rs) 1.89+.
 
 ```bash
-./scripts/build.sh          # builds build/Peekdown.app
-tests/run.sh                # builds and runs all tests (see tests/README.md)
-
-# Optional installers
-./scripts/create-pkg.sh
-./scripts/create-dmg.sh
+make doctor                 # checks that the tools above are installed and nothing in your setup breaks the build
+make                        # builds build/Peekdown.app
+make test                   # builds and runs all tests (see tests/README.md)
+make install                # installs to /Applications and restarts Finder so QuickLook picks it up
+make help                   # every command (pkg, dmg, run, notices, clean, …)
 ```
 
 ## How it works
