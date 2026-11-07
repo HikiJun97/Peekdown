@@ -2,6 +2,6 @@
 [build]
 target-dir = "build/core"
 
-[env]
-# 앱과 같은 최소 macOS 버전으로 빌드해, 링크할 때 버전이 어긋나지 않게 한다
-MACOSX_DEPLOYMENT_TARGET = "13.0"
+# MACOSX_DEPLOYMENT_TARGET은 넣지 않는다. 설정하면 깨끗한 빌드에서 memchr-n이 proc-macro
+# (fearless_simd_macros)를 찾지 못해 실패한다(rustc 1.95). Rust 기본값(macOS 11.0)으로 만든 라이브러리는
+# macOS 13.0 앱에 그대로 링크된다.
