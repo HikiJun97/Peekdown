@@ -6,10 +6,13 @@ APP := build/Peekdown.app
 SUITES ?=
 
 .DEFAULT_GOAL := build
-.PHONY: help build test install run pkg dmg notices spec-update clean
+.PHONY: help doctor build test install run pkg dmg notices spec-update clean
 
 help: ## 명령 목록
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-12s %s\n", $$1, $$2}'
+
+doctor: ## 빌드·테스트에 필요한 도구와 빌드를 망치는 설정이 있는지 점검
+	./scripts/doctor.sh
 
 build: ## 앱 빌드 (build/Peekdown.app)
 	./scripts/build.sh
