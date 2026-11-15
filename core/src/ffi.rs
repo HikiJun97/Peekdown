@@ -42,25 +42,17 @@ pub unsafe extern "C" fn peekdown_page_for_markdown(markdown: *const u8, len: us
     guard(ptr::null_mut(), || out(page_for_markdown(&markdown, base_dir.map(Path::new))))
 }
 
-/// peekdown_page_for_markdown의 본문만. missing_images가 NULL이 아니면 읽지 못한 로컬 이미지 수를 적는다.
-/// QuickLook이 안내 문구를 붙이려고 peekdown_page와 나눠 부른다.
+/// QuickLook용 완성 페이지. peekdown_page_for_markdown과 같되, 표시하지 못한 로컬 이미지가 있으면
+/// notice(HTML, NULL 가능)를 본문 위에 붙인다. QuickLook은 샌드박스라 문서 밖 파일을 읽지 못한다.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn peekdown_markdown_body(markdown: *const u8, len: usize, base_dir: *const c_char, missing_images: *mut usize) -> *mut c_char {
+pub unsafe extern "C" fn peekdown_quicklook_page(markdown: *const u8, len: usize, base_dir: *const c_char, notice: *const c_char) -> *mut c_char {
     let markdown = unsafe { text_arg(markdown, len) };
     let base_dir = unsafe { str_arg(base_dir) };
-    let (body, missing) = guard((String::new(), 0), || markdown_body(&markdown, base_dir.map(Path::new)));
-    if !missing_images.is_null() {
-        unsafe { *missing_images = missing };
-    }
-    out(body)
-}
-
-/// 본문 HTML과 안내 HTML(NULL 가능)을 CSP가 걸린 완성 페이지로 감싼다.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn peekdown_page(body: *const c_char, notice: *const c_char) -> *mut c_char {
-    let body = unsafe { str_arg(body) }.unwrap_or("");
     let notice = unsafe { str_arg(notice) }.unwrap_or("");
-    guard(ptr::null_mut(), || out(page(body, notice)))
+    guard(ptr::null_mut(), || {
+        let (body, missing) = markdown_body(&markdown, base_dir.map(Path::new));
+        out(page(&body, if missing > 0 { notice } else { "" }))
+    })
 }
 
 /// .textbundle 폴더나 .textpack 파일의 완성 페이지. 읽지 못하면 NULL.

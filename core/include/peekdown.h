@@ -12,14 +12,11 @@ extern "C" {
 #endif
 
 // 마크다운(UTF-8, 아니면 Latin-1 바이트)으로 완성 페이지를 만든다. base_dir가 NULL이 아니면
-// 그 폴더 기준으로 마크다운 이미지를 인라인한다.
+// 그 폴더 기준으로 마크다운 이미지를 인라인한다. 렌더링이 실패(패닉)하면 NULL.
 char *peekdown_page_for_markdown(const uint8_t *markdown, size_t len, const char *base_dir);
 
-// peekdown_page_for_markdown의 본문만. missing_images가 NULL이 아니면 읽지 못한 로컬 이미지 수를 적는다.
-char *peekdown_markdown_body(const uint8_t *markdown, size_t len, const char *base_dir, size_t *missing_images);
-
-// 본문 HTML과 안내 HTML(NULL 가능)을 CSP가 걸린 완성 페이지로 감싼다.
-char *peekdown_page(const char *body, const char *notice);
+// QuickLook용 완성 페이지. 표시하지 못한 로컬 이미지가 있으면 notice(HTML, NULL 가능)를 본문 위에 붙인다.
+char *peekdown_quicklook_page(const uint8_t *markdown, size_t len, const char *base_dir, const char *notice);
 
 // .textbundle 폴더나 .textpack 파일의 완성 페이지. 읽지 못하면 NULL.
 char *peekdown_page_for_textbundle(const char *path);

@@ -17,14 +17,11 @@ TARGET="arm64-apple-macosx13.0"
 
 # --- 0. Rust core ---
 # 렌더링·TextBundle·내보내기는 core/(Rust)에 있다. 앱과 확장은 정적 라이브러리로 링크하고,
-# 변환기 peekdown-convert는 실행 파일로 앱 안에 넣는다. 설정은 .cargo/config.toml(출력 폴더 build/core).
+# 변환기 peekdown-convert는 실행 파일로 앱 안에 넣는다. 대상·출력 폴더는 scripts/core-env.sh.
 echo "[0/5] Building core (Rust)..."
 cd "$PROJECT_ROOT"
-cargo build --release --manifest-path core/Cargo.toml --lib --bin peekdown-convert
-CORE_OUT="$BUILD_DIR/core/release"
-CORE_LIB="$CORE_OUT/libpeekdown_core.a"
-# Swift는 core/include/module.modulemap으로 C 함수를 import PeekdownCore 한다
-CORE_SWIFT_FLAGS=(-I "$PROJECT_ROOT/core/include" -Xlinker "$CORE_LIB" -Xlinker -liconv)
+source "$PROJECT_ROOT/scripts/core-env.sh"
+core_cargo build --release --lib --bin peekdown-convert
 echo "  ✓ core"
 
 copy_resources() {  # copy_resources <Resources 폴더>

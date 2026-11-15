@@ -20,10 +20,10 @@ private func withBytes<T>(_ text: String, _ body: (UnsafePointer<UInt8>?, Int) -
 
 @objc(MdairHTML)
 public final class MdairHTML: NSObject {
-    /// .md 문서 전체 페이지. baseDir가 있으면 그 폴더 기준으로 마크다운 이미지를 인라인한다.
+    /// .md 문서 전체 페이지. baseDir가 있으면 그 폴더 기준으로 마크다운 이미지를 인라인한다. 렌더링이 실패하면 nil.
     @objc(pageForMarkdown:baseDir:)
-    public static func page(forMarkdown markdown: String, baseDir: String?) -> String {
-        withBytes(markdown) { bytes, count in take(peekdown_page_for_markdown(bytes, count, baseDir)) } ?? ""
+    public static func page(forMarkdown markdown: String, baseDir: String?) -> String? {
+        withBytes(markdown) { bytes, count in take(peekdown_page_for_markdown(bytes, count, baseDir)) }
     }
 
     /// TextBundle(.textbundle 폴더)이나 TextPack(.textpack) 전체 페이지. 읽지 못하면 nil.
@@ -32,15 +32,12 @@ public final class MdairHTML: NSObject {
         take(peekdown_page_for_textbundle(path))
     }
 
-    /// 마크다운 본문과 읽지 못한 로컬 이미지 수. QuickLook이 안내 문구를 붙일 때 page(body:notice:)와 함께 쓴다.
-    static func body(forMarkdown markdown: String, baseDir: String?) -> (html: String, missingImages: Int) {
-        var missing = 0
-        let html = withBytes(markdown) { bytes, count in take(peekdown_markdown_body(bytes, count, baseDir, &missing)) } ?? ""
-        return (html, missing)
-    }
-
-    static func page(body: String, notice: String = "") -> String {
-        take(peekdown_page(body, notice)) ?? ""
+    /// QuickLook용 페이지. 파일 내용을 그대로 넘기고(UTF-8이 아니면 Latin-1로 읽는다), 표시하지 못한 로컬 이미지가
+    /// 있으면 notice를 붙인다. 렌더링이 실패하면 nil.
+    static func quickLookPage(forMarkdown data: Data, baseDir: String?, notice: String) -> String? {
+        data.withUnsafeBytes { raw in
+            take(peekdown_quicklook_page(raw.bindMemory(to: UInt8.self).baseAddress, raw.count, baseDir, notice))
+        }
     }
 
     /// 각주(#fn-1)처럼 지금 문서 안의 다른 위치로 옮겨 가는 링크인지 판단한다. 이런 이동은 막지 않는다.

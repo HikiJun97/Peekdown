@@ -110,13 +110,11 @@ pub struct LocalImages<'a> {
     base_dir: &'a Path,
     cache: HashMap<PathBuf, String>,
     budget: usize,
-    /// 찾지 못했거나 넣지 않은 로컬 이미지 수
-    pub missing: usize,
 }
 
 impl<'a> LocalImages<'a> {
     pub fn new(base_dir: &'a Path) -> Self {
-        LocalImages { base_dir, cache: HashMap::new(), budget: MAX_INLINE_BYTES, missing: 0 }
+        LocalImages { base_dir, cache: HashMap::new(), budget: MAX_INLINE_BYTES }
     }
 
     /// 이미지 주소 하나를 data URI로 바꾼다. 원격·data 주소나 이미지 확장자가 아닌 주소는 None(그대로 둔다).
@@ -135,10 +133,7 @@ impl<'a> LocalImages<'a> {
                 self.budget -= uri.len();
                 Some(uri)
             }
-            _ => {
-                self.missing += 1;
-                None
-            }
+            _ => None,
         }
     }
 

@@ -145,17 +145,57 @@ pub fn page_for_markdown(markdown: &str, base_dir: Option<&Path>) -> String {
     page(&markdown_body(markdown, base_dir).0, "")
 }
 
-/// [`page_for_markdown`]의 본문과, 읽지 못하거나 넣지 않은 로컬 이미지 수.
+/// [`page_for_markdown`]의 본문과, 본문에 로컬 주소로 남은(표시하지 못한) 이미지 수.
+/// 읽지 못하거나 넣지 않은 마크다운 이미지와 인라인하지 않는 raw HTML `<img>`를 함께 센다.
 /// QuickLook은 샌드박스라 로컬 이미지를 못 읽어서, 이 수로 안내 문구를 붙인다.
 pub fn markdown_body(markdown: &str, base_dir: Option<&Path>) -> (String, usize) {
-    match base_dir {
+    let body = match base_dir {
         Some(dir) => {
             let mut images = LocalImages::new(dir);
-            let body = render_with_images(markdown, false, |url| images.resolve(url));
-            (body, images.missing)
+            render_with_images(markdown, false, |url| images.resolve(url))
         }
-        None => (render(markdown), 0),
+        None => render(markdown),
+    };
+    let missing = local_image_count(&body);
+    (body, missing)
+}
+
+/// HTML에서 src가 data:·http:·https:·// 가 아닌 `<img>` 수.
+fn local_image_count(html: &str) -> usize {
+    let lower = html.to_ascii_lowercase();
+    let mut rest = lower.as_str();
+    let mut count = 0;
+    while let Some(i) = rest.find("<img") {
+        let tag = &rest[i + 4..];
+        let end = tag.find('>').unwrap_or(tag.len());
+        let attrs = &tag[..end];
+        rest = &tag[end..];
+        if !attrs.starts_with(|c: char| c.is_ascii_whitespace()) {
+            continue; // <imgx 같은 다른 태그
+        }
+        let local = img_src(attrs).is_some_and(|src| !src.is_empty() && !["data:", "http:", "https:", "//"].iter().any(|p| src.starts_with(p)));
+        count += usize::from(local);
     }
+    count
+}
+
+/// 태그 속성 문자열에서 src 값(따옴표 안, 또는 따옴표 없는 값). data-src 같은 다른 속성은 건너뛴다.
+fn img_src(attrs: &str) -> Option<&str> {
+    let mut from = 0;
+    while let Some(i) = attrs[from..].find("src") {
+        let at = from + i;
+        from = at + 3;
+        if !attrs[..at].ends_with(|c: char| c.is_ascii_whitespace()) {
+            continue;
+        }
+        let Some(value) = attrs[from..].trim_start().strip_prefix('=') else { continue };
+        let value = value.trim_start();
+        return Some(match value.chars().next() {
+            Some(q @ ('"' | '\'')) => value[1..].split(q).next().unwrap_or(""),
+            _ => value.split(|c: char| c.is_ascii_whitespace() || c == '/').next().unwrap_or(""),
+        }.trim());
+    }
+    None
 }
 
 /// TextBundle(.textbundle 폴더)이나 TextPack(.textpack) 전체 페이지. 읽지 못하면 None.

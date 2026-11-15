@@ -155,6 +155,10 @@
 
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument {
     NSString *html = [MdairHTML pageForMarkdown:markdown baseDir:baseDir];
+    if (!html) {
+        NSLog(@"Failed to render: %@", title);
+        return nil;
+    }
 
     NSRect frame = NSMakeRect(0, 0, 860, 700);
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |

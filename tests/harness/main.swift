@@ -90,7 +90,7 @@ func json(_ s: String) -> [String: Any] {
 }
 
 func page(_ markdown: String, baseDir: String? = nil) -> String {
-    MdairHTML.page(forMarkdown: markdown, baseDir: baseDir)
+    MdairHTML.page(forMarkdown: markdown, baseDir: baseDir) ?? ""
 }
 
 func webkitTests() {
@@ -172,10 +172,14 @@ func webkitTests() {
     }
 
     print("[webkit] QuickLook·TextBundle 경로(C 함수)")
-    // QuickLook은 샌드박스라 로컬 이미지를 못 읽는다. 못 읽은 수가 넘어와야 안내 문구를 붙일 수 있다
-    let (body, missing) = MdairHTML.body(forMarkdown: "![a](pic.png)\n\n![b](nowhere.png)\n", baseDir: dir.path)
-    check(missing == 1 && body.contains("data:image/png"), "본문과 못 읽은 이미지 수", "missing=\(missing)")
-    check(MdairHTML.page(body: body, notice: "<div id=\"n\">notice</div>").contains("<div id=\"n\">notice</div>"), "안내 문구가 페이지에 들어감")
+    // QuickLook은 샌드박스라 로컬 이미지를 못 읽는다. 표시하지 못한 로컬 이미지가 있을 때만 안내 문구를 붙인다
+    let notice = "<div id=\"n\">notice</div>"
+    func quickLook(_ data: Data) -> String { MdairHTML.quickLookPage(forMarkdown: data, baseDir: dir.path, notice: notice) ?? "" }
+    let partly = quickLook(Data("![a](pic.png)\n\n![b](nowhere.png)\n".utf8))
+    check(partly.contains(notice) && partly.contains("data:image/png"), "못 읽은 마크다운 이미지가 있으면 안내 문구")
+    check(quickLook(Data("<img src=\"pic.png\">\n".utf8)).contains(notice), "인라인하지 않는 raw HTML 로컬 이미지도 안내 문구")
+    check(!quickLook(Data("![a](pic.png)\n\n![r](https://example.com/x.png)\n".utf8)).contains(notice), "모두 표시되면 안내 문구 없음")
+    check(quickLook(Data([0x63, 0x61, 0x66, 0xE9])).contains("café"), "UTF-8이 아닌 파일은 Latin-1로 읽음")
     let bundle = dir.appendingPathComponent("doc.textbundle")
     try! FileManager.default.createDirectory(at: bundle.appendingPathComponent("assets"), withIntermediateDirectories: true)
     try! "# Bundle\n\n![p](assets/pic.png)\n".write(to: bundle.appendingPathComponent("text.md"), atomically: true, encoding: .utf8)
