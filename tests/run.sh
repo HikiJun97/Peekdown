@@ -2,6 +2,7 @@
 # Peekdown 테스트를 모두 돌린다. 하나라도 실패하면 종료 코드 1.
 #   tests/run.sh            전체
 #   tests/run.sh unit spec  고른 묶음만 (unit, spec, webkit, converter)
+#   tests/run.sh spec-update  스펙 결과로 known-failures.txt 갱신(make spec-update)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -32,15 +33,17 @@ run() {  # run <묶음 이름> <명령…>
     echo "== $1"
     "${@:2}" || FAILED+=("$1")
 }
-spec_suite() {  # 예제 모으기 → 렌더링 → 비교. 어느 단계든 실패하면 묶음 실패
+spec_suite() {  # 예제 모으기 → 렌더링 → 비교(--update면 known-failures.txt 갱신). 어느 단계든 실패하면 묶음 실패
+    rm -f "$OUT/spec-cases.json" "$OUT/spec-rendered.json"   # 지난 결과로 비교하지 않게
     python3 tests/spec/spec.py cases "$OUT/spec-cases.json" &&
         "$CORE_OUT/examples/harness" spec "$OUT/spec-cases.json" "$OUT/spec-rendered.json" &&
-        python3 tests/spec/spec.py compare "$OUT/spec-cases.json" "$OUT/spec-rendered.json"
+        python3 tests/spec/spec.py compare "$OUT/spec-cases.json" "$OUT/spec-rendered.json" "$@"
 }
 for suite in "${SUITES[@]}"; do
     case "$suite" in
         unit) run unit core_cargo test --quiet ;;
         spec) run spec spec_suite ;;
+        spec-update) run spec-update spec_suite --update ;;
         webkit) run webkit "$OUT/harness" webkit ;;
         converter) run converter tests/converter.sh "$ROOT/build/Peekdown.app/Contents/MacOS/peekdown-convert" "$CORE_OUT/examples/harness" ;;
         *) echo "알 수 없는 묶음: $suite"; FAILED+=("$suite") ;;

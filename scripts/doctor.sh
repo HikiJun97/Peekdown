@@ -2,6 +2,7 @@
 # 이 Mac에 Peekdown을 빌드·테스트할 도구가 있는지 점검한다. 빠진 것이 있으면 종료 코드 1.
 #   make doctor   (또는 scripts/doctor.sh)
 set -u
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAIL=0
 ok()   { echo "  ✓ $1"; }
 bad()  { echo "  ✗ $1"; FAIL=1; }
@@ -27,7 +28,8 @@ if xcode-select -p > /dev/null 2>&1; then
     for tool in clang swiftc codesign; do
         command -v "$tool" > /dev/null && ok "$tool" || bad "$tool 없음"
     done
-    ok "$(swiftc --version 2>&1 | head -1)"
+    # /usr/bin/swiftc는 도구가 없어도 있는 껍데기라, 실제로 실행되는지 본다
+    SWIFTC=$(swiftc --version 2>&1) && ok "$(head -1 <<<"$SWIFTC")" || bad "swiftc 실행 실패: $(head -1 <<<"$SWIFTC")"
 else
     bad "설치되지 않음: xcode-select --install"
 fi
@@ -36,11 +38,11 @@ echo "[Rust]"
 if command -v cargo > /dev/null && command -v rustc > /dev/null; then
     RUSTC=$(rustc -V | awk '{print $2}')
     version_at_least "$RUSTC" 1.89 && ok "rustc $RUSTC ($(command -v rustc))" || bad "rustc $RUSTC: 1.89 이상이 필요합니다(rustup update)"
-    ok "cargo $(cargo -V | awk '{print $2}') ($(command -v cargo))"
+    CARGO=$(cargo -V 2>&1) && ok "cargo $(awk '{print $2}' <<<"$CARGO") ($(command -v cargo))" || bad "cargo 실행 실패: $(head -1 <<<"$CARGO")"
     HOST=$(rustc -vV | awk '/^host:/ {print $2}')
     [ "$HOST" = "aarch64-apple-darwin" ] && ok "host $HOST" || bad "host $HOST: aarch64-apple-darwin이어야 합니다"
     if command -v rustup > /dev/null; then
-        ok "rustup: $(rustup show active-toolchain 2>/dev/null | head -1)"
+        TOOLCHAIN=$(rustup show active-toolchain 2>&1) && ok "rustup: $(head -1 <<<"$TOOLCHAIN")" || bad "rustup 툴체인 없음: $(head -1 <<<"$TOOLCHAIN")"
     else
         warn "rustup 없음(Homebrew rust 등). 버전만 맞으면 되지만 rustup을 권합니다: https://rustup.rs"
     fi
@@ -49,18 +51,23 @@ else
 fi
 
 echo "[빌드에 영향을 주는 설정]"
+# 대상·출력 폴더·MACOSX_DEPLOYMENT_TARGET은 scripts/core-env.sh가 못 박아서 여기서 보지 않는다
 SEEN=0
-for var in MACOSX_DEPLOYMENT_TARGET RUSTFLAGS CARGO_ENCODED_RUSTFLAGS CARGO_BUILD_TARGET CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER; do
+for var in RUSTFLAGS CARGO_ENCODED_RUSTFLAGS RUSTC_WRAPPER CARGO_BUILD_RUSTC_WRAPPER; do
     if [ -n "${!var:-}" ]; then
         SEEN=1
-        if [ "$var" = "MACOSX_DEPLOYMENT_TARGET" ]; then
-            bad "$var=${!var}: 이 값이 있으면 core 빌드가 실패합니다(fearless_simd_macros E0463). unset 후 make clean"
-        else
-            warn "$var=${!var}: 빌드 결과가 달라질 수 있습니다"
-        fi
+        warn "$var=${!var}: 빌드 결과가 달라질 수 있습니다"
     fi
 done
-for config in "$HOME/.cargo/config.toml" "$HOME/.cargo/config"; do
+# cargo는 실행 폴더(저장소 루트)와 그 위 폴더들, CARGO_HOME의 설정을 모두 읽는다. 저장소 자신의 설정은 뺀다
+CONFIGS=("${CARGO_HOME:-$HOME/.cargo}/config.toml" "${CARGO_HOME:-$HOME/.cargo}/config")
+DIR=$(dirname "$ROOT")
+while :; do
+    CONFIGS+=("$DIR/.cargo/config.toml" "$DIR/.cargo/config")
+    [ "$DIR" = "/" ] && break
+    DIR=$(dirname "$DIR")
+done
+for config in "${CONFIGS[@]}"; do
     if [ -f "$config" ]; then
         SEEN=1
         warn "$config 이 있습니다. build·target·env 설정이 있으면 빌드에 영향을 줍니다:"
