@@ -6,6 +6,7 @@ use crate::zip::MAX_ENTRY_SIZE;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use unicode_normalization::UnicodeNormalization;
 
 pub const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "svg", "webp", "tiff", "tif"];
 
@@ -60,7 +61,11 @@ pub fn is_image_data(data: &[u8], ext: &str) -> bool {
 /// 내용도 이미지일 때만. 이미지인 척하는 링크나 이름으로 다른 파일을 싣지 못하게 한다.
 /// 실제 경로도 함께 돌려준다(같은 파일을 다른 경로로 가리켜도 한 번만 다루려고).
 pub fn read_local_image(path: &Path, max: u64) -> Option<LocalImage> {
-    let real = fs::canonicalize(path).ok()?;
+    read_image_file(fs::canonicalize(path).ok()?, max)
+}
+
+/// [`read_local_image`]와 같되 real이 이미 심볼릭 링크를 따라간 실제 경로일 때.
+fn read_image_file(real: PathBuf, max: u64) -> Option<LocalImage> {
     let ext = extension_of(&real);
     let meta = fs::metadata(&real).ok()?;
     if !is_image_extension(&ext) || !meta.is_file() || meta.len() > max {
@@ -143,11 +148,8 @@ impl<'a> LocalImages<'a> {
             return Some(uri.clone());
         }
         // 예산을 넘길 파일은 읽지 않는다
-        let size = fs::metadata(&real).ok()?.len();
-        if data_uri_len(size) > self.budget {
-            return None;
-        }
-        let image = read_local_image(&real, MAX_ENTRY_SIZE as u64)?;
+        let room = (self.budget.saturating_sub(32) / 4 * 3) as u64;
+        let image = read_image_file(real, room.min(MAX_ENTRY_SIZE as u64))?;
         let uri = data_uri(&image.data, &image.ext);
         self.cache.insert(image.real, uri.clone());
         Some(uri)
@@ -158,13 +160,22 @@ impl<'a> LocalImages<'a> {
 /// 같은 첨부물은 한 번만 인코딩하고, 합계는 [`MAX_INLINE_BYTES`]까지만 넣는다.
 pub struct BundleAssets<'a> {
     assets: &'a HashMap<String, Vec<u8>>,
+    /// 유니코드 정규화(NFC)한 이름 → 첨부물. macOS는 파일 이름을 NFD로 두는 일이 많아, 본문이 NFC로 가리켜도 찾게 한다
+    normalized: HashMap<String, &'a Vec<u8>>,
     cache: HashMap<String, String>,
     budget: usize,
 }
 
 impl<'a> BundleAssets<'a> {
     pub fn new(assets: &'a HashMap<String, Vec<u8>>) -> Self {
-        BundleAssets { assets, cache: HashMap::new(), budget: MAX_INLINE_BYTES }
+        // 정규화하면 같아지는 이름이 여럿이면 이름 순으로 앞의 것을 쓴다
+        let mut names: Vec<_> = assets.keys().collect();
+        names.sort();
+        let mut normalized = HashMap::new();
+        for name in names {
+            normalized.entry(name.nfc().collect()).or_insert(&assets[name]);
+        }
+        BundleAssets { assets, normalized, cache: HashMap::new(), budget: MAX_INLINE_BYTES }
     }
 
     /// assets/ 로 시작하는 주소만 바꾼다.
@@ -173,7 +184,14 @@ impl<'a> BundleAssets<'a> {
         let filename = decode_image_path(encoded);
         let mut uri = match self.cache.get(&filename) {
             Some(uri) => uri.clone(),
-            None => match self.assets.get(&filename).or_else(|| self.assets.get(encoded)) {
+            None => match self
+                .assets
+                .get(&filename)
+                .or_else(|| self.assets.get(encoded))
+                .or_else(|| self.normalized.get(&filename.nfc().collect::<String>()).copied())
+            {
+                // 예산을 넘길 첨부물은 인코딩하지 않는다
+                Some(data) if data_uri_len(data.len() as u64) > self.budget => NOT_FOUND.to_string(),
                 Some(data) => {
                     let uri = data_uri(data, filename.rsplit_once('.').map_or("", |(_, e)| e));
                     self.cache.insert(filename, uri.clone());

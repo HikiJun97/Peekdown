@@ -149,6 +149,26 @@ EOF
     printf '![](a/%s.png)\n\n![](b/%s.png)\n' "$NFC" "$NFD" > "$W/nf/nf.md"
     "$CONV" "$W/nf/nf.md" -o "$W/nf.textbundle" >/dev/null 2>&1
     expect "NFC·NFD 이름이 한 파일로 겹치지 않음" test "$(ls "$W/nf.textbundle/assets" | wc -l | tr -d ' ')" -eq 2
+    mkdir -p "$W/nfb.textbundle/assets"
+    png "$W/nfb.textbundle/assets/$NFD.png"
+    printf '![nfc](assets/%s.png)\n' "$NFC" > "$W/nfb.textbundle/text.md"
+    expect "번들 안 NFD 파일 이름을 NFC로 가리켜도 열림" contains "$("$HARNESS" bundle "$W/nfb.textbundle")" "images=nfc=OK"
+
+    echo "[converter] 파서 위치가 어긋나는 이미지"
+    mkdir -p "$W/pos/doc"
+    for n in a b c; do png "$W/pos/doc/$n.png"; done
+    png "$W/vis/private/hidden.png"
+    printf '![![s](../../vis/private/secret.png)](https://example.com/x.png) ![![h](../../vis/private/hidden.png)](missing.png)\n\nA ![x](a.png\n "cap") ![y](b.png) B\n\n| h |\n|---|\n| \\| ![c](c.png) |\n\n![&amp;copy; \\*e\\*](a.png "t&amp;copy;")\n' > "$W/pos/doc/p.md"
+    printf 'A\r\r![cr](c.png "t") B\r' > "$W/pos/doc/cr.md"
+    "$CONV" "$W/pos/doc/p.md" -o "$W/pos.textbundle" >/dev/null 2>&1
+    "$CONV" "$W/pos/doc/cr.md" -o "$W/cr.textbundle" >/dev/null 2>&1
+    PTEXT=$(cat "$W/pos.textbundle/text.md" 2>/dev/null)
+    expect "대체 텍스트 안 이미지는 담지 않음" test "$(ls "$W/pos.textbundle/assets" | tr '\n' ' ')" = "a.png b.png c.png "
+    MULTI=$(printf 'A ![x](assets/a.png\n "cap") ![y](assets/b.png) B')
+    expect "제목이 다음 줄에 있어도 꼬리가 남지 않음" test "${PTEXT#*"$MULTI"}" != "$PTEXT"
+    expect "표 셀의 \\| 뒤 이미지도 바꿈" contains "$PTEXT" '| \| ![c](assets/c.png) |'
+    expect "대체 텍스트·제목 원문을 그대로 둠" contains "$PTEXT" '![&amp;copy; \*e\*](assets/a.png "t&amp;copy;")'
+    expect "CR 줄바꿈 문서의 이미지도 바꿈" test "$(cat "$W/cr.textbundle/text.md" 2>/dev/null)" = "$(printf 'A\r\r![cr](assets/c.png "t") B\r')"
 fi
 
 echo "  ${PASS}개 통과, ${FAIL}개 실패"

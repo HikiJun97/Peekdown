@@ -121,6 +121,10 @@ fn same_document_links() {
 fn asset_space_fixing() {
     assert_eq!(encode_asset_spaces("![a](assets/a b.png)"), "![a](assets/a%20b.png)", "공백을 %20으로");
     assert_eq!(encode_asset_spaces("![a](assets/a b.png \"t\")"), "![a](assets/a b.png \"t\")", "제목이 있으면 그대로");
+    assert_eq!(encode_asset_spaces("![a](assets/a (1) b.png)"), "![a](assets/a%20(1)%20b.png)", "짝이 맞는 괄호는 경로 안");
+    assert_eq!(encode_asset_spaces("`](assets/a b.png)`"), "`](assets/a b.png)`", "코드 스팬 안은 그대로");
+    let block = "```\n](assets/a b.png)\n```\n\n    ](assets/a b.png)\n";
+    assert_eq!(encode_asset_spaces(block), block, "코드 블록 안은 그대로");
     let hostile = "![](assets/ ".repeat(6000); // 약 72KB 한 줄
     let start = Instant::now();
     encode_asset_spaces(&hostile);
