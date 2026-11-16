@@ -12,23 +12,31 @@ use std::fmt;
 /// 위험한 태그는 GFM tagfilter 규칙으로 무력화한다(comrak은 0.56에서 이 확장을 없애 여기서 직접 한다).
 /// 각주(`[^1]`)는 GitHub처럼 지원한다. 정의가 있는 `[^이름]`만 각주가 되므로 `[^a-z]` 같은 일반 글은 그대로다.
 pub fn render(markdown: &str) -> String {
-    render_with_images(markdown, |_| None)
+    render_with_images(markdown, false, |_| None)
 }
 
 /// [`render`]와 같고, 마크다운 이미지(`![](주소)`)의 주소를 image가 돌려준 값으로 바꾼다(None이면 그대로).
 /// 이미지를 data URI로 넣을 때 쓴다. 렌더링된 HTML을 정규식으로 고치면 문서가 속성값 안에 숨겨 둔
 /// `<img src=…>`까지 바꿔 버려(예: 원격 주소의 쿼리) 로컬 이미지 내용이 밖으로 새므로, 실제 이미지 노드만 바꾼다.
-/// raw HTML `<img>`는 건드리지 않는다.
-pub fn render_with_images(markdown: &str, mut image: impl FnMut(&str) -> Option<String>) -> String {
+///
+/// raw_html이 false면 raw HTML `<img>`는 건드리지 않는다. true면 raw HTML 안에서 태그로 쓰인 `<img>`의 src와
+/// srcset도 바꾼다. TextBundle처럼 이미지가 문서와 함께 온 첨부물일 때만 쓴다(문서 밖 파일을 읽지 않으므로
+/// 새어 나갈 것이 없다). 그때도 다른 태그의 속성값이나 주석 안에 든 `<img`는 태그가 아니어서 바꾸지 않는다.
+pub fn render_with_images(markdown: &str, raw_html: bool, mut image: impl FnMut(&str) -> Option<String>) -> String {
     let options = options();
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, &options);
     filter_raw_html(root);
     for node in root.descendants() {
-        if let NodeValue::Image(link) = &mut node.data_mut().value {
-            if let Some(url) = image(&link.url) {
-                link.url = url;
+        match &mut node.data_mut().value {
+            NodeValue::Image(link) => {
+                if let Some(url) = image(&link.url) {
+                    link.url = url;
+                }
             }
+            NodeValue::HtmlBlock(block) if raw_html => block.literal = rewrite_img_tags(&block.literal, &mut image),
+            NodeValue::HtmlInline(literal) if raw_html => *literal = rewrite_img_tags(literal, &mut image),
+            _ => {}
         }
     }
 
@@ -144,4 +152,96 @@ mod tests {
         assert_eq!(filter_tags("<script"), "<script");
         assert_eq!(filter_tags("<!-- --!><style>"), "<!-- --!>&lt;style>");
     }
+}
+
+/// raw HTML에서 태그로 쓰인 `<img>`의 src와 srcset 주소를 image가 돌려준 값으로 바꾼다(None이면 그대로).
+/// 태그 이름과 따옴표를 따라 훑어서, 다른 태그의 속성값이나 주석 안에 든 `<img`는 건드리지 않는다.
+fn rewrite_img_tags(html: &str, image: &mut impl FnMut(&str) -> Option<String>) -> String {
+    let b = html.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    let mut copied = 0;
+    let mut i = 0;
+    while i < b.len() {
+        if html[i..].starts_with("<!--") {
+            i = html[i + 4..].find("-->").map_or(b.len(), |e| i + 4 + e + 3);
+            continue;
+        }
+        if b[i] != b'<' || !b.get(i + 1).is_some_and(u8::is_ascii_alphabetic) {
+            i += 1;
+            continue;
+        }
+        let name_end = i + 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_alphanumeric()).count();
+        let is_img = html[i + 1..name_end].eq_ignore_ascii_case("img");
+        // 태그 끝(따옴표 밖의 >)까지 속성을 하나씩 읽는다
+        let mut j = name_end;
+        loop {
+            while b.get(j).is_some_and(|c| c.is_ascii_whitespace() || *c == b'/') {
+                j += 1;
+            }
+            if j >= b.len() || b[j] == b'>' {
+                break;
+            }
+            let attr_start = j;
+            while b.get(j).is_some_and(|c| !c.is_ascii_whitespace() && !b"=>/".contains(c)) {
+                j += 1;
+            }
+            let attr = html[attr_start..j].to_ascii_lowercase();
+            while b.get(j).is_some_and(u8::is_ascii_whitespace) {
+                j += 1;
+            }
+            if b.get(j) != Some(&b'=') {
+                continue;
+            }
+            j += 1;
+            while b.get(j).is_some_and(u8::is_ascii_whitespace) {
+                j += 1;
+            }
+            let (value_start, value_end, next) = match b.get(j) {
+                Some(&q @ (b'"' | b'\'')) => {
+                    let end = html[j + 1..].find(q as char).map_or(b.len(), |e| j + 1 + e);
+                    (j + 1, end, (end + 1).min(b.len()))
+                }
+                _ => {
+                    let end = j + b[j..].iter().take_while(|c| !c.is_ascii_whitespace() && **c != b'>').count();
+                    (j, end, end)
+                }
+            };
+            j = next;
+            if !is_img || (attr != "src" && attr != "srcset") {
+                continue;
+            }
+            let value = &html[value_start..value_end];
+            let rewritten = if attr == "src" { image(&value.replace("&amp;", "&")) } else { rewrite_srcset(value, image) };
+            if let Some(new) = rewritten {
+                // 원래 값만 바꾸고, 따옴표가 없던 값은 큰따옴표로 감싼다
+                let quoted = value_start > 0 && matches!(b[value_start - 1], b'"' | b'\'');
+                out.push_str(&html[copied..value_start]);
+                out.push_str(&if quoted { new } else { format!("\"{new}\"") });
+                copied = value_end;
+            }
+        }
+        i = j + 1;
+    }
+    out.push_str(&html[copied..]);
+    out
+}
+
+/// srcset(`주소 1x, 주소 2x`)의 주소마다 image를 적용한다. 하나도 바뀌지 않으면 None.
+fn rewrite_srcset(value: &str, image: &mut impl FnMut(&str) -> Option<String>) -> Option<String> {
+    let mut changed = false;
+    let parts: Vec<String> = value
+        .split(',')
+        .map(|candidate| {
+            let candidate = candidate.trim();
+            let (url, descriptor) = candidate.split_once(char::is_whitespace).unwrap_or((candidate, ""));
+            match image(&url.replace("&amp;", "&")) {
+                Some(new) => {
+                    changed = true;
+                    format!("{new} {descriptor}").trim_end().to_string()
+                }
+                None => candidate.to_string(),
+            }
+        })
+        .collect();
+    changed.then(|| parts.join(", "))
 }

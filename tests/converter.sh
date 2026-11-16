@@ -169,6 +169,16 @@ EOF
     expect "표 셀의 \\| 뒤 이미지도 바꿈" contains "$PTEXT" '| \| ![c](assets/c.png) |'
     expect "대체 텍스트·제목 원문을 그대로 둠" contains "$PTEXT" '![&amp;copy; \*e\*](assets/a.png "t&amp;copy;")'
     expect "CR 줄바꿈 문서의 이미지도 바꿈" test "$(cat "$W/cr.textbundle/text.md" 2>/dev/null)" = "$(printf 'A\r\r![cr](assets/c.png "t") B\r')"
+
+    echo "[converter] 문서 폴더 밖 이미지"
+    mkdir -p "$W/out/doc/sub" "$W/out/private"
+    png "$W/out/private/secret.png"
+    png "$W/out/doc/sub/in.png"
+    ln -s ../private/secret.png "$W/out/doc/link.png"
+    printf '<div style="display:none">\n\n![s](../private/secret.png)\n\n</div>\n\n![l](link.png)\n\n![in](sub/in.png)\n' > "$W/out/doc/o.md"
+    OUTMSG=$("$CONV" "$W/out/doc/o.md" -o "$W/out.textbundle" 2>&1)
+    expect "폴더 밖 이미지와 폴더 밖을 가리키는 링크는 담지 않음" test "$(ls "$W/out.textbundle/assets" | tr '\n' ' ')" = "in.png "
+    expect "폴더 밖 이미지는 경고" contains "$OUTMSG" "outside the document folder: ../private/secret.png"
 fi
 
 echo "  ${PASS}개 통과, ${FAIL}개 실패"

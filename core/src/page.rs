@@ -145,7 +145,7 @@ pub fn page_for_markdown(markdown: &str, base_dir: Option<&Path>) -> String {
     let body = match base_dir {
         Some(dir) => {
             let mut images = LocalImages::new(dir);
-            render_with_images(markdown, |url| images.resolve(url))
+            render_with_images(markdown, false, |url| images.resolve(url))
         }
         None => render(markdown),
     };
@@ -156,7 +156,7 @@ pub fn page_for_markdown(markdown: &str, base_dir: Option<&Path>) -> String {
 pub fn page_for_textbundle(path: &Path) -> Option<String> {
     let doc = textbundle::read(path)?;
     let mut assets = BundleAssets::new(&doc.assets);
-    Some(page(&render_with_images(&doc.markdown, |url| assets.resolve(url)), ""))
+    Some(page(&render_with_images(&doc.markdown, true, |url| assets.resolve(url)), ""))
 }
 
 /// 각주(#fn-1)처럼 지금 문서 안의 다른 위치로 옮겨 가는 링크인지 판단한다. 이런 이동은 막지 않는다.

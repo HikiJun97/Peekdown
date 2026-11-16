@@ -9,6 +9,8 @@
 // - 담는 이미지는 화면에 보이는 마크다운 이미지뿐이다. 파서가 이미지로 읽은 노드만 쓰므로, HTML 주석이나
 //   코드 안에 숨긴 참조는 담지 않는다. 다른 이미지의 대체 텍스트 안에 든 이미지도 화면에 보이지 않아 담지 않는다
 // - 원격 이미지(http, https)는 내려받지 않고 링크로 남긴다
+// - 로컬 이미지는 문서가 있는 폴더와 그 하위 폴더 안의 것만 담는다. CSS로 숨긴 HTML 블록 안의 `../비밀.png`처럼
+//   화면에 보이지 않는 참조로 다른 폴더의 파일을 실어 보내지 못하게 한다(숨겼는지는 파서가 알 수 없다)
 // - 로컬 이미지는 심볼릭 링크를 따라간 실제 대상이 일반 파일이고, 이미지 확장자이고, 내용도 이미지일 때만 담는다
 // - 파일당 64MB, 합계 256MB까지만 담는다(TextPack을 읽을 때의 상한과 같다)
 // - 담는 파일 이름은 경로 문자를 걸러 assets/ 밖으로 나가지 못하게 한다
@@ -29,6 +31,8 @@ pub struct Report {
     pub output: PathBuf,
     /// 담지 않은 로컬 이미지 주소: 읽을 수 있는 이미지 파일이 아니거나 크기 상한을 넘은 것
     pub skipped: Vec<String>,
+    /// 문서 폴더 밖이라 담지 않은 로컬 이미지 주소
+    pub outside: Vec<String>,
 }
 
 const INFO_JSON: &str = r#"{
@@ -59,6 +63,7 @@ pub fn convert(input: &Path, output: Option<&Path>) -> Result<Report, String> {
     let bytes = fs::read(&input).map_err(|e| format!("{}: {e}", input.display()))?;
     let markdown = String::from_utf8(bytes).unwrap_or_else(|e| e.into_bytes().iter().map(|&b| b as char).collect());
     let base_dir = input.parent().unwrap_or(Path::new("/")).to_path_buf();
+    let root = fs::canonicalize(&base_dir).map_err(|e| format!("{}: {e}", base_dir.display()))?;
 
     let output = match output {
         Some(path) => std::path::absolute(path).map_err(|e| e.to_string())?,
@@ -83,6 +88,7 @@ pub fn convert(input: &Path, output: Option<&Path>) -> Result<Report, String> {
     let mut assets: Vec<(String, Vec<u8>)> = Vec::new();
     let mut total = 0;
     let mut skipped = Vec::new();
+    let mut outside = Vec::new();
     let mut text = String::with_capacity(markdown.len());
     let mut last = 0;
     let (images, unlocated) = image_refs(&markdown);
@@ -92,8 +98,14 @@ pub fn convert(input: &Path, output: Option<&Path>) -> Result<Report, String> {
         if is_remote(&image.url) {
             continue; // 원격 이미지는 링크로 남긴다
         }
+        // 실제 경로(심볼릭 링크를 따라간 곳)가 문서 폴더 밖이면 담지 않는다
+        let key = image_key(&image.url, &base_dir);
+        if key.as_deref().is_some_and(|k| !k.starts_with("data:") && !Path::new(k).starts_with(&root)) {
+            outside.push(image.url);
+            continue;
+        }
         // 이미 담은 이미지면 다시 읽지 않는다
-        let name = match image_key(&image.url, &base_dir).and_then(|key| assigned.get(&key)) {
+        let name = match key.and_then(|key| assigned.get(&key)) {
             Some(name) => name.clone(),
             None => {
                 let Some((key, data, ext)) = load_image(&image.url, &base_dir, MAX_TOTAL_SIZE - total) else {
@@ -141,7 +153,7 @@ pub fn convert(input: &Path, output: Option<&Path>) -> Result<Report, String> {
             format!("{}: {e}", output.display())
         })?;
     }
-    Ok(Report { output, skipped })
+    Ok(Report { output, skipped, outside })
 }
 
 /// 렌더러와 같은 옵션으로 문서를 읽어 마크다운 이미지 노드를 원문 순서대로 모은다.

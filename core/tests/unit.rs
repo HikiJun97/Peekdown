@@ -3,7 +3,7 @@
 use peekdown_core::images::decode_image_path;
 use peekdown_core::render::render_with_images;
 use peekdown_core::textbundle::encode_asset_spaces;
-use peekdown_core::{is_same_document_link, page_for_markdown, render, zip};
+use peekdown_core::{is_same_document_link, page_for_markdown, page_for_textbundle, render, zip};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -85,7 +85,7 @@ fn image_path_decoding() {
         ("![](a\\(1\\).png)", "a(1).png"),
     ] {
         let mut seen = Vec::new();
-        render_with_images(markdown, |url| {
+        render_with_images(markdown, false, |url| {
             seen.push(decode_image_path(url));
             None
         });
@@ -106,6 +106,31 @@ fn only_markdown_images_are_inlined() {
     assert_eq!(page.matches("src=\"data:image/png").count(), 2, "마크다운 이미지 두 개만 인라인\n{page}");
     assert!(page.contains("<img id=\"raw\" src=\"pic.png\">"), "raw HTML <img>는 그대로");
     assert!(page.contains("leak?d= <img src=\"secret.png\""), "속성값 안에 숨긴 <img src>는 바꾸지 않음(로컬 이미지가 원격으로 새지 않음)");
+}
+
+#[test]
+fn bundle_raw_html_images() {
+    // TextBundle의 첨부물은 문서와 함께 온 것이라 raw HTML <img>도 인라인한다. 태그로 쓰인 <img>만 바꾼다
+    let dir = TempDir::new("bundle-html");
+    let bundle = dir.0.join("doc.textbundle");
+    std::fs::create_dir_all(bundle.join("assets")).unwrap();
+    std::fs::write(bundle.join("assets/a.png"), PNG).unwrap();
+    std::fs::write(bundle.join("assets/b.png"), PNG).unwrap();
+    std::fs::write(
+        bundle.join("text.md"),
+        "<img id=\"raw\" src=\"assets/a.png\" width=\"100\">\n\n\
+         <p><img id=\"set\" srcset=\"assets/a.png 1x, assets/b.png 2x\"></p>\n\n\
+         글 <img id=\"bare\" src=assets/b.png> 끝\n\n\
+         <a id=\"attr\" title='<img src=\"assets/a.png\">'>x</a>\n\n\
+         <!-- <img id=\"comment\" src=\"assets/a.png\"> -->\n",
+    )
+    .unwrap();
+    let page = page_for_textbundle(&bundle).unwrap();
+    assert!(page.contains("<img id=\"raw\" src=\"data:image/png"), "raw HTML <img src>를 인라인\n{page}");
+    assert!(page.contains("srcset=\"data:image/png;base64,") && page.contains(" 1x, data:image/png;base64,"), "srcset 주소마다 인라인");
+    assert!(page.contains("<img id=\"bare\" src=\"data:image/png"), "따옴표 없는 src도 인라인");
+    assert!(page.contains("title='<img src=\"assets/a.png\">'"), "다른 태그의 속성값 안 <img>는 그대로");
+    assert!(page.contains("<!-- <img id=\"comment\" src=\"assets/a.png\"> -->"), "주석 안 <img>는 그대로");
 }
 
 #[test]
