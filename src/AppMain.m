@@ -2,7 +2,7 @@
 #import <WebKit/WebKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-// 렌더러는 MdairRender.swift에 있다. 빌드할 때 swiftc가 이 헤더를 만든다.
+// 렌더링은 Rust(core/)가 하고, CoreBridge.swift가 이를 감싼다. 빌드할 때 swiftc가 이 헤더를 만든다.
 #import "MdairShared-Swift.h"
 
 // ---------------------------------------------------------------------------
@@ -155,6 +155,10 @@
 
 - (NSWindow *)openMarkdownString:(NSString *)markdown withTitle:(NSString *)title baseDir:(NSString *)baseDir isDocument:(BOOL)isDocument {
     NSString *html = [MdairHTML pageForMarkdown:markdown baseDir:baseDir];
+    if (!html) {
+        NSLog(@"Failed to render: %@", title);
+        return nil;
+    }
 
     NSRect frame = NSMakeRect(0, 0, 860, 700);
     NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |

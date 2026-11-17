@@ -53,14 +53,14 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
 
     private func prepareMarkdownPreview(at url: URL) async throws {
         let data = try Data(contentsOf: url)
-        let markdown = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? ""
-        let rendered = MarkdownRenderer().render(markdown)
         let baseDir = url.deletingLastPathComponent()
-        let (body, missing) = MdairHTML.inlineLocalImages(rendered, baseDir: baseDir)
-        let notice = missing > 0 ? """
+        let notice = """
         <div class="mdair-notice"><strong>로컬 이미지를 표시할 수 없습니다.</strong><br>macOS QuickLook 미리보기는 보안 정책상 미리보기 파일 외 다른 파일에 접근할 수 없습니다. 이미지를 보려면 파일을 더블클릭하여 <strong>Peekdown</strong> 앱으로 열거나, <code>peekdown-convert</code>로 이미지를 함께 담은 <code>.textpack</code>으로 변환하세요.</div>
-        """ : ""
-        let html = MdairHTML.page(body: body, notice: notice)
+        """
+        // 렌더링이 실패하면 오류를 던져 QuickLook이 기본 미리보기를 쓰게 한다
+        guard let html = MdairHTML.quickLookPage(forMarkdown: data, baseDir: baseDir.path, notice: notice) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation
@@ -71,9 +71,7 @@ class PreviewViewController: NSViewController, QLPreviewingController, WKNavigat
     }
 
     private func prepareTextBundlePreview(at url: URL) async throws {
-        let doc = try TextBundleReader().read(url: url)
-        let body = MdairHTML.inlineAssets(MarkdownRenderer().render(doc.markdown), assets: doc.assets)
-        let html = MdairHTML.page(body: body)
+        guard let html = MdairHTML.page(forTextBundle: url.path) else { throw CocoaError(.fileReadCorruptFile) }
         await withCheckedContinuation { continuation in
             Task { @MainActor in
                 self.loadContinuation = continuation

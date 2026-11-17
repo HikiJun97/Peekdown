@@ -22,19 +22,9 @@ mkdir -p "$PAYLOAD_DIR/Applications"
 cp -R "$BUILD_DIR/Peekdown.app" "$PAYLOAD_DIR/Applications/"
 
 # Postinstall: register app with Launch Services + reset QuickLook
+# make install(scripts/install.sh)과 같은 스크립트를 쓴다
 SCRIPTS_DIR=$(mktemp -d)
-cat > "$SCRIPTS_DIR/postinstall" << 'POSTINSTALL'
-#!/bin/bash
-# Register app so it appears in "Open With" and QL extension is activated
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/Peekdown.app 2>/dev/null || true
-/usr/bin/qlmanage -r 2>/dev/null || true
-/usr/bin/qlmanage -r cache 2>/dev/null || true
-# Open the app briefly to register the extension, then quit
-open -a /Applications/Peekdown.app 2>/dev/null || true
-sleep 2
-osascript -e 'tell application "Peekdown" to quit' 2>/dev/null || true
-exit 0
-POSTINSTALL
+cp "$PROJECT_ROOT/scripts/postinstall.sh" "$SCRIPTS_DIR/postinstall"
 chmod +x "$SCRIPTS_DIR/postinstall"
 
 pkgbuild \

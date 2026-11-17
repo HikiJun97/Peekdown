@@ -1,0 +1,7 @@
+# 저장소 루트에서 cargo를 부를 때(scripts/build.sh, tests/run.sh) 쓰는 설정
+[build]
+target-dir = "build/core"
+
+# MACOSX_DEPLOYMENT_TARGET은 넣지 않는다. 설정하면 깨끗한 빌드에서 memchr-n이 proc-macro
+# (fearless_simd_macros)를 찾지 못해 실패한다(rustc 1.95). Rust 기본값(macOS 11.0)으로 만든 라이브러리는
+# macOS 13.0 앱에 그대로 링크된다.

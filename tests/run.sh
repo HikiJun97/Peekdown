@@ -2,42 +2,50 @@
 # Peekdown 테스트를 모두 돌린다. 하나라도 실패하면 종료 코드 1.
 #   tests/run.sh            전체
 #   tests/run.sh unit spec  고른 묶음만 (unit, spec, webkit, converter)
+#   tests/run.sh spec-update  스펙 결과로 known-failures.txt 갱신(make spec-update)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 SUITES=("$@")
 [ ${#SUITES[@]} -eq 0 ] && SUITES=(unit spec webkit converter)
 OUT="$ROOT/build/tests"
+PROJECT_ROOT="$ROOT"
+source "$ROOT/scripts/core-env.sh"   # Rust core의 대상·출력 폴더(CORE_OUT)·링크 플래그. scripts/build.sh와 같다
 mkdir -p "$OUT"
 
 echo "== 빌드"
 if ! ./scripts/build.sh > "$OUT/build.log" 2>&1; then
     tail -20 "$OUT/build.log"; echo "빌드 실패"; exit 1
 fi
-WARNINGS=$(grep -c "warning:" "$OUT/build.log" || true)
+if ! core_cargo build --release --examples > "$OUT/core-build.log" 2>&1; then
+    tail -20 "$OUT/core-build.log"; echo "테스트 하네스(core/examples) 빌드 실패"; exit 1
+fi
+# WebKit 하네스는 앱과 같은 CoreBridge.swift로 Rust core를 C 함수로 부른다
+if ! swiftc -O -target arm64-apple-macosx13.0 -o "$OUT/harness" "${CORE_SWIFT_FLAGS[@]}" \
+        src/CoreBridge.swift tests/harness/main.swift > "$OUT/harness-build.log" 2>&1; then
+    cat "$OUT/harness-build.log"; echo "WebKit 하네스 빌드 실패"; exit 1
+fi
+WARNINGS=$(cat "$OUT/build.log" "$OUT/core-build.log" "$OUT/harness-build.log" | grep -c "warning:" || true)
 echo "  빌드 성공, 경고 ${WARNINGS}개"
-swiftc -O -o "$OUT/harness" \
-    -I vendor/cmark-gfm -Xcc -Ivendor/cmark-gfm/src -Xcc -Ivendor/cmark-gfm/extensions -Xcc -DCMARK_GFM_STATIC_DEFINE \
-    src/MdairRender.swift tests/harness/main.swift build/obj/libcmark-gfm.a || { echo "하네스 빌드 실패"; exit 1; }
-# 하네스도 앱처럼 실행 파일 옆의 mermaid.min.js를 읽는다
-cp resources/mermaid.min.js "$OUT/"
 
 FAILED=()
 run() {  # run <묶음 이름> <명령…>
     echo "== $1"
     "${@:2}" || FAILED+=("$1")
 }
-spec_suite() {  # 예제 모으기 → 렌더링 → 비교. 어느 단계든 실패하면 묶음 실패
+spec_suite() {  # 예제 모으기 → 렌더링 → 비교(--update면 known-failures.txt 갱신). 어느 단계든 실패하면 묶음 실패
+    rm -f "$OUT/spec-cases.json" "$OUT/spec-rendered.json"   # 지난 결과로 비교하지 않게
     python3 tests/spec/spec.py cases "$OUT/spec-cases.json" &&
-        "$OUT/harness" spec "$OUT/spec-cases.json" "$OUT/spec-rendered.json" &&
-        python3 tests/spec/spec.py compare "$OUT/spec-cases.json" "$OUT/spec-rendered.json"
+        "$CORE_OUT/examples/harness" spec "$OUT/spec-cases.json" "$OUT/spec-rendered.json" &&
+        python3 tests/spec/spec.py compare "$OUT/spec-cases.json" "$OUT/spec-rendered.json" "$@"
 }
 for suite in "${SUITES[@]}"; do
     case "$suite" in
-        unit) run unit "$OUT/harness" unit ;;
-        webkit) run webkit "$OUT/harness" webkit ;;
+        unit) run unit core_cargo test --quiet ;;
         spec) run spec spec_suite ;;
-        converter) run converter tests/converter.sh "$ROOT/build/Peekdown.app/Contents/MacOS/peekdown-convert" "$OUT/harness" ;;
+        spec-update) run spec-update spec_suite --update ;;
+        webkit) run webkit "$OUT/harness" webkit ;;
+        converter) run converter tests/converter.sh "$ROOT/build/Peekdown.app/Contents/MacOS/peekdown-convert" "$CORE_OUT/examples/harness" ;;
         *) echo "알 수 없는 묶음: $suite"; FAILED+=("$suite") ;;
     esac
 done

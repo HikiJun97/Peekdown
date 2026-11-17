@@ -105,7 +105,8 @@ def compare(cases_path, rendered_path, update):
 
     if update:
         with open(KNOWN, "w", encoding="utf-8") as f:
-            f.write("# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우 등.\n")
+            f.write("# 렌더러가 스펙과 다르게 내는 예제. 확장(tagfilter, autolink)을 켜서 GitHub과 같게 동작하는 경우,\n")
+            f.write("# GFM 스펙(0.29) 이후 CommonMark 0.31.2에서 바뀐 규칙을 따르는 경우 등.\n")
             f.write("# tests/spec/spec.py compare … --update 로 다시 만든다.\n")
             for key in sorted(failing, key=lambda k: (k.split()[0], int(k.split("#")[1]))):
                 f.write(f'{key}\t{failing[key]["section"]}\n')
